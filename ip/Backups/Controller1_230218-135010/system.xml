@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SystemProperties>
+  <SystemName>Controller1</SystemName>
+  <SerialNo>VIRTUAL_USE</SerialNo>
+  <UsedMedia>
+    <Media path="C:\Users\moksyasha\AppData\Local\ABB\RobotWare\RobotWare_6.15.1001" name="RobotWare" version="6.15.1001">
+    </Media>
+  </UsedMedia>
+  <ControlModule>
+    <Option descr="RobotWare Base">
+    </Option>
+    <Option descr="English">
+    </Option>
+    <Option descr="616-1 PC Interface">
+    </Option>
+  </ControlModule>
+  <DriveModule>
+    <Name>Robot1</Name>
+    <Option descr="Drive System IRB 120/140/260/360/910SC/1200/1400/1520/1600/1660ID">
+    </Option>
+    <Option descr="ADU-790A in position X3">
+    </Option>
+    <Option descr="ADU-790A in position Y3">
+    </Option>
+    <Option descr="ADU-790A in position Z3">
+    </Option>
+    <Option descr="IRB 360-1/800 Standard">
+    </Option>
+  </DriveModule>
+</SystemProperties>
