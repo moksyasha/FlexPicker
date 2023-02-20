@@ -9,7 +9,7 @@ def left_click_detect(event, x, y, flags, points):
         print(points)
 
 def main():
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1)
     polygon = []
     points = []
 
