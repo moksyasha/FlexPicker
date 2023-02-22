@@ -1,0 +1,40 @@
+#
+# Generated backup file, do not edit.
+#
+# Originally at: C:\Users\moksyasha\Desktop\FlexPicker\main\Virtual Controllers\TEMP\939194fd-32d0-46d8-9cd2-804b184c53ae\backup.298773
+# 2023-02-22  16:03:10
+#
+>>SYSTEM_ID:
+VIRTUAL_USE
+
+>>PRODUCTS_ID:
+RobotWare Version: 6.15.01.00
+
+  RobotWare Base
+  English
+  616-1 PC Interface
+  Drive System IRB 120/140/260/360/910SC/1200/1400/1520/1600/1660ID
+  ADU-790A in position X3
+  ADU-790A in position Y3
+  ADU-790A in position Z3
+  IRB 360-1/800 Standard
+
+>>HOME:
+All public files and directories
+
+>>SYSPAR:
+SYS.cfg
+PROC.cfg
+MMC.cfg
+EIO.cfg
+SIO.cfg
+MOC.cfg
+
+
+>>TASK1: (T_ROB1,,)
+SYSMOD\user.sys @ 
+PROGMOD\MainModule.mod @ 
+PROGMOD\CalibData.mod @ 
+
+
+>>EOF:
