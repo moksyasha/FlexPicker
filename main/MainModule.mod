@@ -74,12 +74,13 @@ PROC main()
     VAR num z;
     
     MoveJ ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
-    
+
+    SetDO Local_IO_0_DO1, 1;
     SocketCreate serverSocket;
-    SocketBind serverSocket, "127.0.0.1", 1488;
+    SocketBind serverSocket, "192.168.125.1", 1488;
     SocketListen serverSocket;
     SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
-    
+    SetDO Local_IO_0_DO1, 0;
     
     WHILE command<>"exit" DO
         receive_cmd:= Receive();

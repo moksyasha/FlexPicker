@@ -4,7 +4,7 @@ import socket
 def main():
     # create socket, connect to RobotStudio server and send data
     sock = socket.socket()
-    sock.connect(("127.0.0.1", 1488))
+    sock.connect(("192.168.125.1", 1488))
     
     while True:
         cmd = input()
