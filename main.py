@@ -5,7 +5,7 @@ import numpy as np
 import cv2
 import math
 from time import gmtime, strftime
-
+import re
 
 def get_center(image):
     # Применим небольшое размытие для устранения шумов
@@ -38,20 +38,19 @@ def main():
 
     # Start streaming
     pipeline.start(config)
-    points = np.array(["200 0 0", "-200 0 0", "0 200 0", "0 -200 0",
-                       "200 0 100", "-200 0 100", "0 200 100", "0 -200 100"])
-
+    points = np.array(["100 0 0", "-100 0 0", "0 100 0", "0 -100 0",
+                       "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
+    main_cpoint = []
+    main_rpoint = []
     for i in range(9):
         #cmd = input()
-        sock.send(points[i].encode('ASCII'))
-
-        if cmd == "exit":
-            break
+        cmd = "MJ " + points[i]
+        sock.send(cmd.encode('ASCII'))
         
         data = sock.recv(1024)
         print(data.decode('ASCII'))
 
-        key = cv2.waitKey(1)
+        input()
 
         # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
@@ -81,18 +80,22 @@ def main():
         distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
         print("Distance from camera to pixel:", distance)
         print("Z-depth from camera surface to pixel surface:", depth)
-        point = x, y, depth
-        print(point)
-        key = cv2.waitKey(1)
-        # Press esc to close the image window
-        if key%256 == 27:
-            cv2.destroyAllWindows()
-            break
-        elif key % 256 == 32:
-            # SPACE pressed
-            img_name = strftime("%H_%M_%S", gmtime()) + '.png'
-            cv2.imwrite(img_name, images)
-
+        point = np.array([x, y, depth]).astype(np.float32)
+        main_cpoint.append(point)
+        str_point = np.array(re.findall('\d+', points[i])).astype(np.float32)
+        main_rpoint.append(str_point)
+        input()
+        # # Press esc to close the image window
+        # if key%256 == 27:
+        #     cv2.destroyAllWindows()
+        #     break
+        # elif key % 256 == 32:
+        #     # SPACE pressed
+        #     img_name = strftime("%H_%M_%S", gmtime()) + '.png'
+        #     cv2.imwrite(img_name, images)
+    print(main_cpoint, main_rpoint)
+    transform = cv2.estimateAffine3D(np.array(main_cpoint), np.array(main_rpoint))[1]
+    print("Got transform: ", transform)
     # cam_port = 1
     # cam = cv.VideoCapture(cam_port)
 
