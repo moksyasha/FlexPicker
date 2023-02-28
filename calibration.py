@@ -1,4 +1,4 @@
-#import cv2 as cv
+# import cv2 as cv
 import socket
 import time
 
@@ -10,13 +10,14 @@ from time import gmtime, strftime
 import re
 import os
 
+
 def get_center(image):
     # Применим небольшое размытие для устранения шумов
     image = cv2.GaussianBlur(image, (7, 7), 0)
     # Переведём в цветовое пространство HSV
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     # Сегментируем красный цвет
-    saturation = hsv[...,1]
+    saturation = hsv[..., 1]
     saturation[(hsv[..., 0] > 15) & (hsv[..., 0] < 165)] = 0
     _, image1 = cv2.threshold(saturation, 92, 255, cv2.THRESH_BINARY)
     mask = image1
@@ -28,21 +29,18 @@ def get_center(image):
     b = tuple(int(item) for item in b_circle[0])
     return b, mask
 
+
 def get_world_coords(u, v, depth):
     camera_matrix = [[386.420, 0.0, 315.6], [0.0, 386.420, 241.429], [0.0, 0.0, 1.0]]
     f = np.linalg.inv(camera_matrix)
     l = np.array([u,v,1]) * depth
     return np.dot(f,l)
 
-
 def main():
-
-    transform = np.loadtxt("transform.txt")
-
     # create socket, connect to RobotStudio server and send data
-    #sock = socket.socket()
-    #sock.connect(("192.168.125.1", 1488))
-    
+    sock = socket.socket()
+    sock.connect(("192.168.125.1", 1488))
+
     # Configure depth and color streams
     pipeline = rs.pipeline()
     config = rs.config()
@@ -53,14 +51,17 @@ def main():
     pipeline.start(config)
     points = np.array(["100 0 0", "-100 0 0", "0 100 0", "0 -100 0",
                        "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
-
-    for i in range(1):
-        #cmd = input()
+    main_cpoint = []
+    main_rpoint = []
+    folder = "calibration_" + strftime("%m_%d_%H_%M", gmtime())
+    os.mkdir(folder)
+    for i in range(9):
+        # cmd = input()
         cmd = "MJ " + points[i]
-        #sock.send(cmd.encode('ASCII'))
-        
-        #data = sock.recv(1024)
-        #print(data.decode('ASCII'))
+        sock.send(cmd.encode('ASCII'))
+
+        data = sock.recv(1024)
+        print(data.decode('ASCII'))
 
         # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
@@ -88,8 +89,18 @@ def main():
         print("Distance from camera to pixel:", distance)
         print("Z-depth from camera surface to pixel surface:", depth)
         point = np.array([x, y, depth]).astype(np.float32)
-        cam_coords = get_world_coords(x, y, depth)
-        print(cam_coords)
+        cam_coord = get_world_coords(x, y, depth)
+        main_cpoint.append(cam_coord)
+        str_point = np.array(re.findall('\d+', points[i])).astype(np.float32)
+        main_rpoint.append(str_point)
+
+        img_name = '\\' + folder + '\\' + str(i) + '.png'
+        cv2.imwrite(img_name, images)
+    print(main_cpoint, main_rpoint)
+    transform = cv2.estimateAffine3D(np.array(main_cpoint), np.array(main_rpoint))[1]
+    print("Got transform: ", transform)
+    np.savetxt('transform.txt', transform)
+
 
 if __name__ == "__main__":
     main()
