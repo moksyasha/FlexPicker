@@ -49,19 +49,22 @@ def main():
 
     # Start streaming
     pipeline.start(config)
-    points = np.array(["100 0 0", "-100 0 0", "0 100 0", "0 -100 0",
-                       "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
+    # points = np.array(["100 0 0", "-100 0 0", "0 100 0", "0 -100 0",
+    #                    "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
+    points = np.array(["-300 100 0", "-300 -100 0", "300 -100 0", "300 100 0"])
     main_cpoint = []
     main_rpoint = []
     folder = "calibration_" + strftime("%m_%d_%H_%M", gmtime())
     os.mkdir(folder)
-    for i in range(9):
+    for i in range(4):
         # cmd = input()
         cmd = "MJ " + points[i]
         sock.send(cmd.encode('ASCII'))
 
         data = sock.recv(1024)
         print(data.decode('ASCII'))
+        input()
+
 
         # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
@@ -96,6 +99,7 @@ def main():
 
         img_name = '\\' + folder + '\\' + str(i) + '.png'
         cv2.imwrite(img_name, images)
+        cv2.imwrite(str(i) + '.png', images)
     print(main_cpoint, main_rpoint)
     transform = cv2.estimateAffine3D(np.array(main_cpoint), np.array(main_rpoint))[1]
     print("Got transform: ", transform)
