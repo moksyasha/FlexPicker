@@ -10,23 +10,31 @@ from time import gmtime, strftime
 import re
 import os
 
-def get_center(image):
-    # Применим небольшое размытие для устранения шумов
-    image = cv2.GaussianBlur(image, (7, 7), 0)
-    # Переведём в цветовое пространство HSV
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    # Сегментируем красный цвет
-    saturation = hsv[...,1]
-    saturation[(hsv[..., 0] > 15) & (hsv[..., 0] < 165)] = 0
-    _, image1 = cv2.threshold(saturation, 92, 255, cv2.THRESH_BINARY)
-    mask = image1
-    # Найдем наибольшую связную область
-    contours = cv2.findContours(image1, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[0]
-    contour = max(contours, key=cv2.contourArea)
-    # Оценим ее центр
-    b_circle = cv2.minEnclosingCircle(contour)
-    b = tuple(int(item) for item in b_circle[0])
-    return b, mask
+
+def get_center(img):
+    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([10, 255, 255]))
+    filter2 = cv2.inRange(img_hsv, np.array([170, 100, 100]), np.array([179, 255, 255]))
+    red = cv2.addWeighted(filter1, 1.0, filter2, 1.0, 0.0)
+
+    red = cv2.GaussianBlur(red, (3, 3), 0)
+    red = cv2.medianBlur(red, 3)
+
+    # circles = cv2.HoughCircles(red, cv2.HOUGH_GRADIENT, 1, red.shape[0] / 8, param1=30, param2=50, minRadius = 1, maxRadius = 100)
+    cnts = cv2.findContours(red, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+
+    for c in cnts:
+        peri = cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, 0.04 * peri, True)
+        area = cv2.contourArea(c)
+        if len(approx) > 3 and area > 20 and area < 140:
+            ((x, y), r) = cv2.minEnclosingCircle(c)
+            cv2.circle(img, (int(x), int(y)), int(r), (36, 255, 12), 2)
+            return int(x), int(y), img
+
+    return 0, 0, 0
 
 def get_world_coords(u, v, depth):
     camera_matrix = [[386.420, 0.0, 315.6], [0.0, 386.420, 241.429], [0.0, 0.0, 1.0]]
@@ -51,7 +59,7 @@ def main():
 
     # Start streaming
     pipeline.start(config)
-    points = np.array(["100 0 0", "-100 0 0", "0 100 0", "0 -100 0",
+    points = np.array(["100 100 100", "-100 0 0", "0 100 0", "0 -100 0",
                        "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
 
     for i in range(1):
@@ -73,23 +81,30 @@ def main():
         color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
-        center, mask = get_center(color_image)
-        x, y = center
+
+        x, y, result = get_center(color_image)
+        if not x:
+            print("Couldnt find center! Retry!")
+
         # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
         # Stack both images horizontally
-        images = np.hstack((color_image, depth_colormap))
-
+        #images = np.hstack((color_image, depth_colormap))
+        cv2.namedWindow('RealSense', cv2.WINDOW_AUTOSIZE)
+        cv2.imshow('RealSense', result)
+        cv2.waitKey(0)
         depth = depth_frame.get_distance(x, y)
 
         dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
         distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
-        print("Distance from camera to pixel:", distance)
+        print("Distance from camera to pixel:", distance, "x, y: ", x, y)
         print("Z-depth from camera surface to pixel surface:", depth)
-        point = np.array([x, y, depth]).astype(np.float32)
+        point = np.array([x, y, depth])
+
         cam_coords = get_world_coords(x, y, depth)
         print(cam_coords)
+        print(point)
 
 if __name__ == "__main__":
     main()
