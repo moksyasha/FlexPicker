@@ -1,6 +1,5 @@
 import numpy as np
-import cv2
-
+import pyrealsense2 as rs
 
 def rigid_transform_3D(A, B):
     assert A.shape == B.shape
@@ -45,38 +44,7 @@ def rigid_transform_3D(A, B):
 
     return R, t
 
-
-def main():
-    rp = np.loadtxt("transform_robot.txt")
-    cp = np.loadtxt("transform_pointscam.txt")
-    print(rp, "\n\n", cp)
-
-    R, t = rigid_transform_3D(cp, rp)
-    print("R:\n", R, "\nt: \n", t)
-    cp2 = (R@rp) + t
-
-    err = cp2 - cp
-    err = err * err
-    err = np.sum(err)
-    rmse = np.sqrt(err/9)
-    print("RMSE:", rmse)
-    # print(R, t)
-    # transform = np.append(R, t, axis=1)
-
-    # print("transform:\n\n", transform)
-
-    camera = np.array([374., 248., 1.803])
-    print("camera: \n", camera)
-    print(camera@R + t.reshape(1, 3))
-    #camera = np.append(camera, 1)
-    # # print(camera)
-    # transform = np.append(transform, np.array([0., 0., 0., 1.]))
-    # transform.resize(4, 4)
-    # print("new transform: \n\n", transform)
-
-    # result = np.multiply(camera, transform)
-    # print("result: \n", result)
-
-
-if __name__ == "__main__":
-    main()
+point = np.array([300, 227])
+depth = 1.16
+result = rs.rs2_deproject_pixel_to_point(_intrinsics, [x, y], depth)
+print(result)
