@@ -1,7 +1,6 @@
 # import cv2 as cv
 import socket
 import time
-
 #import pyrealsense2 as rs
 import numpy as np
 import cv2
@@ -111,6 +110,7 @@ def main():
     #points = np.array(["-300 100 0", "-300 -100 0", "300 -100 0", "300 100 0", "0 0 0"])
     main_cpoint = []
     main_rpoint = []
+    main_cpoint2 = []
     folder = "calibration_" + strftime("%m_%d_%H_%M_%S", gmtime())
     os.mkdir(folder)
 
@@ -122,8 +122,7 @@ def main():
 
         data = sock.recv(1024)
         print(data.decode('ASCII'))
-        input()
-
+        time.sleep(3)
         # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
         depth_frame = frames.get_depth_frame()
@@ -141,7 +140,8 @@ def main():
             print("Couldnt find center! Retry!")
 
         cv2.imshow('RealSense', result)
-        cv2.waitKey(1000)
+        cv2.waitKey(1500)
+        cv2.destroyAllWindows()
         # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
         depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
 
@@ -154,9 +154,11 @@ def main():
         distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
         print("Distance from camera to pixel:", distance, "x, y: ", x, y)
         print("Z-depth from camera surface to pixel surface:", depth)
-        point = np.array([x, y, depth]).astype(np.float32)
+
         cam_coord = np.array([x, y, depth]).astype(np.float32)
+        cam_coord2 = np.array([dx, dy, dz]).astype(np.float32)
         main_cpoint.append(cam_coord)
+        main_cpoint2.append(cam_coord2)
         str_point = np.array(re.findall('\d+', points[i])).astype(np.float32)
         main_rpoint.append(str_point)
 
@@ -164,18 +166,38 @@ def main():
         cv2.imwrite(img_name, images)
         cv2.imwrite(str(i) + '.png', images)
 
-    print(main_cpoint, main_rpoint)
+    print(main_cpoint, main_cpoint2, main_rpoint)
+
     main_cpoint = np.rot90(main_cpoint, k=-1)
+    main_cpoint2 = np.rot90(main_cpoint, k=-1)
     main_rpoint = np.rot90(main_rpoint, k=-1)
+
     transform, t = rigid_transform_3D(np.array(main_cpoint), np.array(main_rpoint))
-    print(transform, t)
-    transform = np.append(transform, t, axis=1)
-    transform = np.append(transform, [0,0,0,1])
-    transform.resize(4, 4)
-    print("Got transform: ", transform)
-    np.savetxt('transform.txt', transform)
-    np.savetxt('transform_pointscam.txt', main_cpoint)
-    np.savetxt('transform_robot.txt', main_rpoint)
+    
+    R, t = rigid_transform_3D(main_cpoint, main_rpoint)
+    main_rpoint2 = (R@main_cpoint) + t
+
+    err = main_rpoint2 - main_rpoint
+    err = err * err
+    err = np.sum(err)
+    rmse = np.sqrt(err/9)
+    print("1RMSE:", rmse)
+    
+
+    # pixel to point
+    transform, t = rigid_transform_3D(np.array(main_cpoint2), np.array(main_rpoint))
+    
+    R, t = rigid_transform_3D(main_cpoint2, main_rpoint)
+    main_rpoint2 = (R@main_cpoint2) + t
+
+    err = main_rpoint2 - main_rpoint
+    err = err * err
+    err = np.sum(err)
+    rmse = np.sqrt(err/9)
+    print("\n2RMSE:", rmse)
+    #np.savetxt('transform.txt', transform)
+    #np.savetxt('transform_pointscam.txt', main_cpoint)
+    #np.savetxt('transform_robot.txt', main_rpoint)
 
 
 if __name__ == "__main__":
