@@ -49,25 +49,33 @@ def rigid_transform_3D(A, B):
 def main():
     rp = np.loadtxt("transform_robot.txt")
     cp = np.loadtxt("transform_pointscam.txt")
-    print(rp, "\n\n", cp)
 
-    R, t = rigid_transform_3D(cp, rp)
-    print("R:\n", R, "\nt: \n", t)
-    cp2 = (R@rp) + t
+    _,trans, p = cv2.estimateAffine3D(rp.T, cp.T, confidence=0.90, ransacThreshold=200)
+    print("p: \n", p)
+
+    rp_new = np.append(rp, np.ones(8))
+    rp_new = np.resize(rp_new, (4, 8))
+    print(rp_new)
+    cp2 = trans@rp_new
+    print(cp)
+    print("new cp: \n:", cp2)
 
     err = cp2 - cp
     err = err * err
     err = np.sum(err)
-    rmse = np.sqrt(err/9)
+    rmse = np.sqrt(err/8)
     print("RMSE:", rmse)
+
+    a = np.array([[1,1], [2,2]])
+    b = np.array([[1, 1], [2, 2]])
     # print(R, t)
     # transform = np.append(R, t, axis=1)
 
     # print("transform:\n\n", transform)
 
-    camera = np.array([374., 248., 1.803])
-    print("camera: \n", camera)
-    print(camera@R + t.reshape(1, 3))
+    # camera = np.array([374., 248., 1.803])
+    # print("camera: \n", camera)
+    # print(camera@R + t.reshape(1, 3))
     #camera = np.append(camera, 1)
     # # print(camera)
     # transform = np.append(transform, np.array([0., 0., 0., 1.]))

@@ -12,16 +12,18 @@ import pyrealsense2 as rs
  
 # https://solarianprogrammer.com/2015/05/08/detect-red-circles-image-using-opencv/
 def get_center(img):
+    img2 = cv2.rectangle(img, (0, 0), (640, 480), (255, 255, 255), 180)
+    img_hsv = cv2.cvtColor(img2, cv2.COLOR_BGR2HSV)
 
-    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
-    filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([5, 255, 255]))
-    filter2 = cv2.inRange(img_hsv, np.array([175, 100, 100]), np.array([179, 255, 255]))
+    filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([6, 255, 255]))
+    filter2 = cv2.inRange(img_hsv, np.array([168, 100, 100]), np.array([179, 255, 255]))
     red = cv2.addWeighted(filter1, 1.0, filter2, 1.0, 0.0)
 
     red = cv2.GaussianBlur(red, (3, 3), 0)
     red = cv2.medianBlur(red, 3)
-    
+    cv2.imshow('RealSense', red)
+    cv2.waitKey(1500)
+    cv2.destroyAllWindows()
     #circles = cv2.HoughCircles(red, cv2.HOUGH_GRADIENT, 1, red.shape[0] / 8, param1=30, param2=50, minRadius = 1, maxRadius = 100)
     cnts = cv2.findContours(red, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     cnts = cnts[0] if len(cnts) == 2 else cnts[1]
@@ -30,10 +32,10 @@ def get_center(img):
         peri = cv2.arcLength(c, True)
         approx = cv2.approxPolyDP(c, 0.04 * peri, True)
         area = cv2.contourArea(c)
-        if len(approx) > 2 and area > 10 and area < 140:
+        if len(approx) > 5 and area > 40 and area < 120:
             ((x, y), r) = cv2.minEnclosingCircle(c)
-            cv2.circle(img, (int(x), int(y)), int(r), (36, 255, 12), 2)
-            return int(x), int(y), img
+            cv2.circle(img2, (int(x), int(y)), int(r), (36, 255, 12), 2)
+            return int(x), int(y), img2
 
     return 0, 0, 0
 
@@ -114,8 +116,7 @@ def main():
     folder = "calibration_" + strftime("%m_%d_%H_%M_%S", gmtime())
     os.mkdir(folder)
 
-    for i in range(9
-                   ):
+    for i in range(9):
         # cmd = input()
         cmd = "MJ " + points[i]
         sock.send(cmd.encode('ASCII'))
@@ -138,6 +139,7 @@ def main():
         x, y, result = get_center(color_image)
         if not x:
             print("Couldnt find center! Retry!")
+            continue
 
         cv2.imshow('RealSense', result)
         cv2.waitKey(1500)
@@ -152,14 +154,11 @@ def main():
 
         dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
         distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
-        print("Distance from camera to pixel:", distance, "x, y: ", x, y)
+        print("Distance from camera to pixel:", distance, "x, y: ", dx, dy)
         print("Z-depth from camera surface to pixel surface:", depth)
-
-        cam_coord = np.array([x, y, depth]).astype(np.float32)
-        cam_coord2 = np.array([dx, dy, dz]).astype(np.float32)
+        cam_coord = np.array([dx*1000, dy*1000, depth*1000]).astype(np.float32)
         main_cpoint.append(cam_coord)
-        main_cpoint2.append(cam_coord2)
-        str_point = np.array(re.findall('\d+', points[i])).astype(np.float32)
+        str_point = np.array(re.findall('-?\d+\.?\d*', points[i])).astype(np.float32)
         main_rpoint.append(str_point)
 
         img_name = '\\' + folder + '\\' + str(i) + '.png'
@@ -169,7 +168,6 @@ def main():
     print(main_cpoint, main_cpoint2, main_rpoint)
 
     main_cpoint = np.rot90(main_cpoint, k=-1)
-    main_cpoint2 = np.rot90(main_cpoint, k=-1)
     main_rpoint = np.rot90(main_rpoint, k=-1)
 
     transform, t = rigid_transform_3D(np.array(main_cpoint), np.array(main_rpoint))
@@ -182,22 +180,10 @@ def main():
     err = np.sum(err)
     rmse = np.sqrt(err/9)
     print("1RMSE:", rmse)
-    
 
-    # pixel to point
-    transform, t = rigid_transform_3D(np.array(main_cpoint2), np.array(main_rpoint))
-    
-    R, t = rigid_transform_3D(main_cpoint2, main_rpoint)
-    main_rpoint2 = (R@main_cpoint2) + t
-
-    err = main_rpoint2 - main_rpoint
-    err = err * err
-    err = np.sum(err)
-    rmse = np.sqrt(err/9)
-    print("\n2RMSE:", rmse)
-    #np.savetxt('transform.txt', transform)
-    #np.savetxt('transform_pointscam.txt', main_cpoint)
-    #np.savetxt('transform_robot.txt', main_rpoint)
+    np.savetxt('transform.txt', transform)
+    np.savetxt('transform_pointscam.txt', main_cpoint)
+    np.savetxt('transform_robot.txt', main_rpoint)
 
 
 if __name__ == "__main__":
