@@ -40,55 +40,6 @@ def get_center(img):
     return 0, 0, 0
 
 
-def get_world_coords(u, v, depth):
-    camera_matrix = [[386.420, 0.0, 315.6], [0.0, 386.420, 241.429], [0.0, 0.0, 1.0]]
-    f = np.linalg.inv(camera_matrix)
-    l = np.array([u,v,1]) * depth
-    return np.dot(f,l)
-
-def rigid_transform_3D(A, B):
-    assert A.shape == B.shape
-
-    num_rows, num_cols = A.shape
-    if num_rows != 3:
-        raise Exception(f"matrix A is not 3xN, it is {num_rows}x{num_cols}")
-
-    num_rows, num_cols = B.shape
-    if num_rows != 3:
-        raise Exception(f"matrix B is not 3xN, it is {num_rows}x{num_cols}")
-
-    # find mean column wise
-    centroid_A = np.mean(A, axis=1)
-    centroid_B = np.mean(B, axis=1)
-
-    # ensure centroids are 3x1
-    centroid_A = centroid_A.reshape(-1, 1)
-    centroid_B = centroid_B.reshape(-1, 1)
-
-    # subtract mean
-    Am = A - centroid_A
-    Bm = B - centroid_B
-
-    H = Am @ np.transpose(Bm)
-
-    # sanity check
-    #if linalg.matrix_rank(H) < 3:
-    #    raise ValueError("rank of H = {}, expecting 3".format(linalg.matrix_rank(H)))
-
-    # find rotation
-    U, S, Vt = np.linalg.svd(H)
-    R = Vt.T @ U.T
-
-    # special reflection case
-    if np.linalg.det(R) < 0:
-        print("det(R) < R, reflection detected!, correcting for it ...")
-        Vt[2,:] *= -1
-        R = Vt.T @ U.T
-
-    t = -R @ centroid_A + centroid_B
-
-    return R, t
-
 def main():
 
     # img = cv2.imread('2.png', cv2.IMREAD_COLOR)[0:480, 0:640]
@@ -112,10 +63,10 @@ def main():
     #points = np.array(["-300 100 0", "-300 -100 0", "300 -100 0", "300 100 0", "0 0 0"])
     main_cpoint = []
     main_rpoint = []
-    main_cpoint2 = []
     folder = "calibration_" + strftime("%m_%d_%H_%M_%S", gmtime())
     os.mkdir(folder)
 
+    ok_dots = 0
     for i in range(9):
         # cmd = input()
         cmd = "MJ " + points[i]
@@ -137,7 +88,9 @@ def main():
         color_image = np.asanyarray(color_frame.get_data())
 
         x, y, result = get_center(color_image)
+        ok_dots+=1
         if not x:
+            ok_dots-=1
             print("Couldnt find center! Retry!")
             continue
 
@@ -156,7 +109,7 @@ def main():
         distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
         print("Distance from camera to pixel:", distance, "x, y: ", dx, dy)
         print("Z-depth from camera surface to pixel surface:", depth)
-        cam_coord = np.array([dx*1000, dy*1000, depth*1000]).astype(np.float32)
+        cam_coord = np.array([dx, dy, depth]).astype(np.float32)
         main_cpoint.append(cam_coord)
         str_point = np.array(re.findall('-?\d+\.?\d*', points[i])).astype(np.float32)
         main_rpoint.append(str_point)
@@ -165,23 +118,25 @@ def main():
         cv2.imwrite(img_name, images)
         cv2.imwrite(str(i) + '.png', images)
 
-    print(main_cpoint, main_cpoint2, main_rpoint)
+    print("POINTS:", main_cpoint, main_cpoint.shape, main_rpoint, main_rpoint.shape)
 
-    main_cpoint = np.rot90(main_cpoint, k=-1)
-    main_rpoint = np.rot90(main_rpoint, k=-1)
+    #main_cpoint = np.rot90(main_cpoint, k=-1)
+    #main_rpoint = np.rot90(main_rpoint, k=-1)
 
-    transform, t = rigid_transform_3D(np.array(main_cpoint), np.array(main_rpoint))
-    
-    R, t = rigid_transform_3D(main_cpoint, main_rpoint)
-    main_rpoint2 = (R@main_cpoint) + t
+    _,trans, p = cv2.estimateAffine3D(main_cpoint, main_rpoint, confidence=0.90, ransacThreshold=200)
+    print("p: \n", p)
 
-    err = main_rpoint2 - main_rpoint
+    cp_new = np.append(main_cpoint, np.ones(ok_dots))
+    cp_new = np.resize(cp_new, (4, ok_dots))
+
+    rp2 = trans@cp_new
+    err = rp2 - rp
     err = err * err
     err = np.sum(err)
-    rmse = np.sqrt(err/9)
-    print("1RMSE:", rmse)
+    rmse = np.sqrt(err/ok_dots)
+    print("RMSE:", rmse)
 
-    np.savetxt('transform.txt', transform)
+    np.savetxt('transform.txt', trans)
     np.savetxt('transform_pointscam.txt', main_cpoint)
     np.savetxt('transform_robot.txt', main_rpoint)
 

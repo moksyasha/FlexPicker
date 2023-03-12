@@ -4,20 +4,24 @@ import re
 import numpy as np
 
 
-def main():
-    transform = np.loadtxt("transform.txt")
-    print("Got transform: ", transform)
-    camera = np.array([301.,         227.,           1.15100002])
-    camera = np.append(camera, [1])
-    #print(np.linalg.det(transform[:, :3]))
-    #transform = np.delete(transform, (3), axis=0)
-    #transform = np.append(transform, np.array([0, 0, 0, 1]))
-    #transform.resize(4, 4)
-    print(transform)
-    result = np.dot(transform, camera)
-    result = np.delete(result, -1)
-    print(result)
 
+
+def main():
+    rp = np.loadtxt("transform_robot.txt")
+    cp = np.loadtxt("transform_pointscam.txt")
+
+    _,trans, p = cv2.estimateAffine3D(cp.T, rp.T, confidence=0.90, ransacThreshold=200)
+    print("p: \n", p)
+
+    cp_new = np.append(cp, np.ones(8))
+    cp_new = np.resize(cp_new, (4, 8))
+
+    rp2 = trans@cp_new
+    err = rp2 - rp
+    err = err * err
+    err = np.sum(err)
+    rmse = np.sqrt(err/8)
+    print("RMSE:", rmse)
 
 if __name__ == "__main__":
     main()
