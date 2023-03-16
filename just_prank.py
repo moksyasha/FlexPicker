@@ -54,7 +54,7 @@ def rigid_transform_3D(A, B):
 
 
 def affine(rp, cp):
-    _,trans, p = cv2.estimateAffine3D(cp, rp)
+    _,trans, p = cv2.estimateAffine3D(cp, rp, confidence = 0.95, ransacThreshold=3)
     print("Points: \n", p)
     cp_new = np.hstack((cp, np.ones((cp.shape[0], 1))))
     rp2 = np.dot(trans, cp_new.T)
