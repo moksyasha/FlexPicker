@@ -62,10 +62,11 @@ def main():
     # Start streaming
     pipeline.start(config)
     points = np.array(["200 50 0", "-200 50 0", "-200 -50 0", "200 -50 0",
-                        "200 50 100", "-200 50 100", "-200 -50 100", "200 -50 100", "0 0 50"])
+                        "200 50 100", "-200 50 100", "-200 -50 100", "200 -50 100"])
     #points = np.array(["-300 100 0", "-300 -100 0", "300 -100 0", "300 100 0", "0 0 0"])
     main_cpoint = []
     main_rpoint = []
+    center = []
     #folder = "calibration_" + strftime("%m_%d_%H_%M_%S", gmtime())
     #os.mkdir(folder)
 
@@ -154,9 +155,9 @@ def main():
         main_cpoint.append(cam_coord)
         str_point = np.array(re.findall('-?\d+\.?\d*', points[i])).astype(np.float32)
         main_rpoint.append(str_point)
-
+        center.append([x, y])
         # img_name = '\\' + folder + '\\' + str(i) + '.png'
-        # cv2.imwrite(img_name, images)
+        cv2.imwrite(str(i) + '.png', color_image)
         # cv2.imwrite(str(i) + '.png', images)
 
     #print("POINTS:", main_cpoint, main_cpoint.shape, main_rpoint, main_rpoint.shape)
@@ -165,7 +166,7 @@ def main():
     #main_rpoint = np.rot90(main_rpoint, k=-1)
     main_cpoint = np.array(main_cpoint)
     main_rpoint = np.array(main_rpoint)
-
+    center_ar = np.array(center)
     # _,trans, p = cv2.estimateAffine3D(main_cpoint, main_rpoint, confidence=0.90, ransacThreshold=200)
     # print("p: \n", p)
 
@@ -181,7 +182,7 @@ def main():
 
     np.savetxt('transform_pointscam.txt', main_cpoint)
     np.savetxt('transform_robot.txt', main_rpoint)
-
+    np.savetxt('center.txt', center)
 
 if __name__ == "__main__":
     main()

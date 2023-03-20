@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import re
 import numpy as np
-
+import matplotlib.pyplot as plt
 
 def cam_to_rob(trans, x, y, d):
     cpoint = np.array([x, y, d, 1]).reshape((4, 1))
@@ -85,8 +85,18 @@ def main():
     rp = np.loadtxt("transform_robot.txt")
     cp = np.loadtxt("transform_pointscam.txt")
 
-    affine(rp, cp)
-    rigid(rp.T, cp.T)
+    #create 3d axes
+    fig = plt.figure()
+    ax = plt.axes(projection='3d')
+
+    #cordiates for spiral
+    ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
+    ax.plot3D(cp[:, 0], cp[:, 1], cp[:, 2], 'blue')
+    ax.view_init(60, 50)
+    plt.show()
+
+    # affine(rp, cp)
+    # rigid(rp.T, cp.T)
     
 
 
