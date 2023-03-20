@@ -101,7 +101,7 @@ def main():
 
         data = sock.recv(1024)
         print(data.decode('ASCII'))
-        time.sleep(3)
+        #time.sleep(3)
         # Wait for a coherent pair of frames: depth and color
         frames = pipeline.wait_for_frames()
         depth_frame = frames.get_depth_frame()
