@@ -54,6 +54,30 @@ def get_world_coords(x, y, depth):
     v = np.array([x, y, 1]) * depth
     return np.dot(f, v)
 
+https://coder.social/IntelRealSense/librealsense/issues/9945
+### Project Color Pixel coordinate to Depth Pixel coordinate
+def ProjectColorPixeltoDepthPixel(depth_frame, depth_scale, 
+                                depth_min, depth_max, depth_intrinsic, color_intrinsic, 
+                                depth_to_color_extrinsic, color_to_depth_extrinsic, 
+                                color_pixel):
+
+    depth_pixel = rs.rs2_project_color_pixel_to_depth_pixel(depth_frame.get_data(), depth_scale, 
+                    depth_min, depth_max, depth_intrinsic, color_intrinsic, 
+                    depth_to_color_extrinsic, color_to_depth_extrinsic, 
+                    color_pixel)
+    
+    return depth_pixel
+
+
+### Deproject Depth Pixel coordinate to Depth Point coordinate
+def DeProjectDepthPixeltoDepthPoint(depth_frame, depth_intrinsic, x_depth_pixel, y_depth_pixel):
+
+    depth = depth_frame.get_distance(int(x_depth_pixel), int(y_depth_pixel))
+
+    depth_point = rs.rs2_deproject_pixel_to_point(depth_intrinsic, [int(x_depth_pixel), int(y_depth_pixel)], depth)
+    
+    return depth, depth_point
+
 
 def main():
 

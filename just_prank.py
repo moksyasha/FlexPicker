@@ -69,7 +69,7 @@ def affine(rp, cp):
     err = np.sum(err)
     rmse = np.sqrt(err/rp2.shape[0])
     print("RMSE:", rmse)
-
+    return(trans)
 
 def rigid(rp, cp):
     print("Orig: \n", np.array(rp).astype(np.int32))
@@ -103,7 +103,6 @@ def main():
     fig = plt.figure()
     ax = plt.axes(projection='3d')
     
-    # #cordiates for spiral
     ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
     ax.view_init(60, 50)
     ax.plot3D(cp[:, 2], cp[:, 3], cp[:, 4], 'blue')
@@ -111,7 +110,8 @@ def main():
     plt.show()
     cp = cp[:, [2, 3, 4]]
     # print(rp.shape, cp.shape)
-    affine(rp, cp)
+    trans = affine(rp, cp)
+    np.savetxt("transform.txt", trans)
     # rigid(rp.T, cp.T)
     
 
