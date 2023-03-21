@@ -13,7 +13,7 @@ import pyrealsense2 as rs
 camera_matrix = [[644.034, 0.0, 632.666], [0.0, 644.034, 362.382], [0.0, 0.0, 1.0]]
 
 def get_center(img):
-    img = cv2.rectangle(img, (0, 0), (1050, 620), (255, 255, 255), 170)
+    img = cv2.rectangle(img, (0, 0), (1050, 620), (255, 255, 255), 150)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
     filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([0, 255, 255]))
@@ -42,6 +42,7 @@ def get_center(img):
 
     return 0, 0, 0
 
+
 def get_world_coords(x, y, depth):
     """return physical coordinates in mm
 
@@ -52,6 +53,7 @@ def get_world_coords(x, y, depth):
     f = np.linalg.inv(camera_matrix)
     v = np.array([x, y, 1]) * depth
     return np.dot(f, v)
+
 
 def main():
 
@@ -66,10 +68,10 @@ def main():
     # Configure depth and color streams
     pipeline = rs.pipeline()
     config = rs.config()
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+    config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
     
-    profile = pipeline.start(cfg)
+    profile = pipeline.start(config)
 
     depth_sensor = profile.get_device().first_depth_sensor()
     depth_sensor.set_option(rs.option.visual_preset, 4) # High density preset
@@ -81,9 +83,12 @@ def main():
                         "300 -100 200", "-300 -100 200", "-300 100 200", "300 100 200", "0 0 100"])
     
     fltr = rs.temporal_filter()
-    main_arr1 = []
+    main_arr = []
     main_arr2 = []
     robot_points = []
+
+    # folder = "/calibration_" + strftime("%m_%d_%H_%M_%S", gmtime()) + "/"
+    # os.mkdir(folder)
 
     for i in range(9):
         
@@ -92,71 +97,54 @@ def main():
 
         data = sock.recv(1024)
         print(data.decode('ASCII'))
-        time.sleep(1)
+        input()
 
         frames = pipeline.wait_for_frames()
 
         aligned_frames = align.process(frames)
         depth_frame = aligned_frames.get_depth_frame()
-        aligned_color_frame = aligned_frames.get_color_frame()
+        color_frame = aligned_frames.get_color_frame()
+        color_frame = np.asanyarray(color_frame.get_data())
 
-        if not depth_frame or not aligned_color_frame:
+        if not depth_frame or not aligned_frames:
             continue
 
         # 1 try https://github.com/IntelRealSense/librealsense/issues/6749
-        color_intrin = aligned_color_frame.profile.as_video_stream_profile().intrinsics
-        print(color_intrin)
-
-        depth_image = np.asanyarray(depth_frame.get_data())
-        color_image = np.asanyarray(aligned_color_frame.get_data())
-
-        x, y, result = get_center(color_image)
-        depth = depth_frame.get_distance(x, y)
-        dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x,y], depth)
-        distance = math.sqrt(((dx)**2) + ((dy)**2) + ((dz)**2))
-        arr = []
-        arr.append(dx)
-        arr.append(dy)
-        arr.append(dz)
-        arr.append(distance)
-        print("1 Distance from camera to pixel:", distance)
-        print("1 Z-depth from camera surface to pixel surface:", depth)
-
-        main_arr1.append(arr)
-
-        # 2 try - pc
-        pc = rs.pointcloud()
-        depth_frame = aligned_frames.get_depth_frame().as_video_frame()
-        color_frame = aligned_frames.get_color_frame().as_video_frame()
-        depth_frame = fltr.process(depth_frame)
         depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
         w, h = depth_intrinsics.width, depth_intrinsics.height
-        points = pc.calculate(depth_frame) # todo: save to file for control
-        #pc.map_to(color_frame)
-        # Pointcloud data to arrays
-        verts = np.asarray(points.get_vertices()).view(np.float32).reshape(h, w, 3)
-        #imageFrame = np.asanyarray(color_frame.get_data())
+
+        x, y, result = get_center(color_frame)
+        cv2.imshow("a", result)
+        cv2.imwrite(str(i) + '.png', color_frame)
+        cv2.waitKey(1000)
+
+        pc = rs.pointcloud()
+        depth_frame_fltr = fltr.process(depth_frame)
+        points_pc = pc.calculate(depth_frame_fltr)
+        verts = np.asarray(points_pc.get_vertices()).view(np.float32).reshape(h, w, 3)
+        print(verts.shape)
+        np.savetxt("depth_" + str(i) + ".txt", verts[:, :, 2])
+
         dx, dy, dz = rs.rs2_deproject_pixel_to_point(depth_intrinsics,
                     [x, y], verts[int(y)][int(x)][2])
         distance = math.sqrt(((dx)**2) + ((dy)**2) + ((dz)**2))
         arr = []
+        arr.append(x)
+        arr.append(y)
         arr.append(dx)
         arr.append(dy)
         arr.append(dz)
         arr.append(distance)
         print("2 Distance from camera to pixel:", distance)
-        print("2 Z-depth from camera surface to pixel surface:", depth)
-        main_arr2.append(arr)
+        print("2 Z-depth from camera surface to pixel surface:", dz)
+        main_arr.append(arr)
 
         str_point = np.array(re.findall('-?\d+\.?\d*', points[i])).astype(np.float32)
         robot_points.append(str_point)
 
-    
     robot_points = np.array(robot_points)
-    main_arr1 = np.array(main_arr1)
-    main_arr2 = np.array(main_arr2)
-    np.savetxt("cp1.txt", main_arr1)
-    np.savetxt("cp2.txt", main_arr2)
+    main_arr1 = np.array(main_arr)
+    np.savetxt("cp.txt", main_arr)
     np.savetxt("rp.txt", robot_points)
 
 

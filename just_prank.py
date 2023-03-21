@@ -56,7 +56,7 @@ def rigid_transform_3D(A, B):
 
 
 def affine(rp, cp):
-    _,trans, p = cv2.estimateAffine3D(cp, rp, confidence = 0.95, ransacThreshold=3)
+    _,trans, p = cv2.estimateAffine3D(cp, rp)
     print("Points: \n", p)
     cp_new = np.hstack((cp, np.ones((cp.shape[0], 1))))
     rp2 = np.dot(trans, cp_new.T)
@@ -82,6 +82,7 @@ def rigid(rp, cp):
     rmse = np.sqrt(err/rp2.shape[0])
     print("RMSE:", rmse)
 
+
 def get_world_coords(x, y, depth):
     """return physical coordinates in mm
 
@@ -93,27 +94,24 @@ def get_world_coords(x, y, depth):
     v = np.array([x, y, 1]) * depth
     return np.dot(f, v)
 
-def pp():
-    return np.array([1, 2, 3])
+
 def main():
-    a, b, c = pp()
-    print(a, b, c)
-    # rp = np.loadtxt("transform_robot.txt")
-    # cp = np.loadtxt("transform_pointscam.txt")
+
+    rp = np.loadtxt("rp.txt")
+    cp = np.loadtxt("cp.txt") * 1000
     # #create 3d axes
-    # fig = plt.figure()
-    # ax = plt.axes(projection='3d')
-    #
+    fig = plt.figure()
+    ax = plt.axes(projection='3d')
+    
     # #cordiates for spiral
-    # ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
-    # ax.view_init(60, 50)
-    # plt.show()
-    #
-    # ax.plot3D(cp[:, 0], cp[:, 1], cp[:, 2], 'blue')
-    # ax.view_init(60, 50)
-    # plt.show()
-    #
-    # affine(rp, cp)
+    ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
+    ax.view_init(60, 50)
+    ax.plot3D(cp[:, 2], cp[:, 3], cp[:, 4], 'blue')
+    ax.view_init(60, 50)
+    plt.show()
+    cp = cp[:, [2, 3, 4]]
+    # print(rp.shape, cp.shape)
+    affine(rp, cp)
     # rigid(rp.T, cp.T)
     
 
