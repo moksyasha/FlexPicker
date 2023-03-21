@@ -1,116 +1,129 @@
-#import cv2 as cv
-import socket
-import time
-
-import pyrealsense2 as rs
-import numpy as np
-import cv2
-import math
-from time import gmtime, strftime
-import re
+import torch
+import argparse
 import os
+import platform
+import sys
+from pathlib import Path
+import cv2 as cv
+import numpy as np
+import imutils
+
+from models.common import DetectMultiBackend
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
+                           increment_path, non_max_suppression, print_args, scale_boxes, scale_segments,
+                           strip_optimizer)
+from utils.plots import Annotator, colors, save_one_box
+from utils.segment.general import masks2segments, process_mask, process_mask_native
+from utils.torch_utils import select_device, smart_inference_mode
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]
+PATH_PT = ROOT / "best_segm.pt"
 
 
-def get_center(img):
-    img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    img_hsv = cv2.rectangle(img_hsv, (0, 0), (640, 480), (255, 255, 255), 180)
-    filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([1, 255, 255]))
-    filter2 = cv2.inRange(img_hsv, np.array([167, 100, 100]), np.array([172, 255, 255]))
-    red = cv2.addWeighted(filter1, 1.0, filter2, 1.0, 0.0)
-
-    red = cv2.GaussianBlur(red, (3, 3), 0)
-    red = cv2.medianBlur(red, 3)
-
-    cv2.imshow('RealSense', img_hsv)
-    cv2.waitKey(1500)
-    cv2.destroyAllWindows()
-    # circles = cv2.HoughCircles(red, cv2.HOUGH_GRADIENT, 1, red.shape[0] / 8, param1=30, param2=50, minRadius = 1, maxRadius = 100)
-    cnts = cv2.findContours(red, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-
-    for c in cnts:
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.04 * peri, True)
-        area = cv2.contourArea(c)
-        if len(approx) > 4  and area > 50 and area < 140:
-            ((x, y), r) = cv2.minEnclosingCircle(c)
-            cv2.circle(img, (int(x), int(y)), int(r), (36, 255, 12), 2)
-            return int(x), int(y), img
-
-    return 0, 0, 0
-
-def get_world_coords(u, v, depth):
-    camera_matrix = [[386.420, 0.0, 315.6], [0.0, 386.420, 241.429], [0.0, 0.0, 1.0]]
-    f = np.linalg.inv(camera_matrix)
-    l = np.array([u,v,1]) * depth
-    return np.dot(f,l)
-
-
-def main():
-
-    transform = np.loadtxt("transform.txt")
-
-    # create socket, connect to RobotStudio server and send data
-    #sock = socket.socket()
-    #sock.connect(("192.168.125.1", 1488))
+def get_center(img_orig, model):
+    stride, names, pt = model.stride, model.names, model.pt
     
-    # Configure depth and color streams
+    img = img_orig.transpose((2, 0, 1))[::-1]   # HWC to CHW, BGR to RGB
+    img = np.ascontiguousarray(img)
+    img = torch.from_numpy(img).to(model.device).float()
+    img /= 255.
+
+    if len(img.shape) == 3:
+        img = img[None]  # expand for batch dim
+
+    pred, proto = model(img, augment=False, visualize=False)[:2]
+
+    conf_thres=0.70
+    iou_thres=0.45
+    classes=None
+    agnostic_nms=False
+    pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=100, nm=32)
+
+    annotator = Annotator(img_orig, line_width=3, example=str(names))
+    # Process predictions
+    det = pred[0]
+    
+    cX = 0
+    cY = 0
+
+    if len(det): # if found smth
+        #(det[:, 6:] набор коорд боксов с conf и class shape(n, 32)
+        masks = process_mask(proto[0], det[:, 6:], det[:, :4], img.shape[2:], upsample=True)  # HWC #shape(n, 640, 640)
+        det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], img_orig.shape).round()  # rescale boxes to im0 size  #shape(n, 38)
+        ind_conf = torch.argmax(det[:, 4]) # find index of max confidence
+
+        #Mask plotting
+        annotator.masks(
+                masks,
+                colors=[colors(x, True) for x in det[:, 5]],
+                im_gpu=img[0])
+        
+        #Write results
+        for j, (*xyxy, conf, cls) in enumerate(det[:, :6]):
+            c = int(cls)  # integer class
+            label = f'{names[c]} {conf:.2f}'
+            color_bbox = 0 if (j!=ind_conf) else 10
+            annotator.box_label(xyxy, label, color=colors(color_bbox, True))
+
+        img = annotator.result()
+        
+        # find center of area 
+        mask = masks[ind_conf].cpu().detach().numpy()
+        mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
+        cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cnts = imutils.grab_contours(cnts)
+        M = cv2.moments(cnts[0])
+        cX = int(M["m10"] / (M["m00"]+1e-10))
+        cY = int(M["m01"] / (M["m00"]+1e-10))
+	    # draw the contour and center of the shape on the image
+        
+    img = annotator.result()
+    cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
+    cv2.imshow("a", img)
+    cv2.waitKey(1000)
+    cv2.destroyAllWindows()
+    print("Found with center: ", cX, cY)
+    return cX, cY
+
+
+def get_command(x, y):
+    
+def main():
+    # Load model
+    device = select_device("")
+    model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
+    stride, names, pt = model.stride, model.names, model.pt
+    imgsz = check_img_size((1280, 736), s=stride)  # check image size
+
+    # Run inference
+    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
+    #img_orig = cv.imread("3.jpg")
+
     pipeline = rs.pipeline()
     config = rs.config()
-    config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 15)
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 15)
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+    profile = pipeline.start(config)
 
-    # Start streaming
-    pipeline.start(config)
-    points = np.array(["100 100 100", "-100 0 0", "0 100 0", "0 -100 0",
-                       "100 0 100", "-100 0 100", "0 100 100", "0 -100 100", "0 0 50"])
+    frames = pipeline.wait_for_frames()
+    color_frame = frames.get_color_frame()
+    color_frame = np.asanyarray(color_frame.get_data())
 
-    for i in range(1):
-        #cmd = input()
-        cmd = "MJ " + points[i]
-        #sock.send(cmd.encode('ASCII'))
-        
-        #data = sock.recv(1024)
-        #print(data.decode('ASCII'))
+    print(frame.shape) 
+    x, y = get_center(color_frame, model)
 
-        # Wait for a coherent pair of frames: depth and color
-        frames = pipeline.wait_for_frames()
-        depth_frame = frames.get_depth_frame()
-        color_frame = frames.get_color_frame()
-        if not depth_frame or not color_frame:
-            continue
+    sock = socket.socket()
+    sock.connect(("192.168.125.1", 1488))
 
-        # Convert images to numpy arrays
-        color_intrin = color_frame.profile.as_video_stream_profile().intrinsics
-        depth_image = np.asanyarray(depth_frame.get_data())
-        color_image = np.asanyarray(color_frame.get_data())
+    get_command(x, y)
+    sock.send(cmd.encode('ASCII'))
 
-        x, y, result = get_center(color_image)
-        if not x:
-            print("Couldnt find center! Retry!")
+    data = sock.recv(1024)
+    print(data.decode('ASCII'))
+    input()
 
-        # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
-        depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(depth_image, alpha=0.03), cv2.COLORMAP_JET)
+    
 
-        # Stack both images horizontally
-        #images = np.hstack((color_image, depth_colormap))
-        cv2.namedWindow('RealSense', cv2.WINDOW_AUTOSIZE)
-        cv2.imshow('RealSense', result)
-        cv2.waitKey(1500)
-        cv2.destroyAllWindows()
-        depth = depth_frame.get_distance(x, y)
-
-        dx, dy, dz = rs.rs2_deproject_pixel_to_point(color_intrin, [x, y], depth)
-        distance = math.sqrt(((dx) ** 2) + ((dy) ** 2) + ((dz) ** 2))
-        print("Distance from camera to pixel:", distance, "x, y: ", x, y)
-        print("Z-depth from camera surface to pixel surface:", depth)
-        point = np.array([x, y, depth])
-
-        cam_coords = get_world_coords(x, y, depth)
-        print(cam_coords)
-        print(point)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
-
-
