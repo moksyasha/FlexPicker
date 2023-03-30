@@ -7,6 +7,9 @@ from pathlib import Path
 import cv2 as cv
 import numpy as np
 import imutils
+import socket
+import pyrealsense2 as rs
+import time
 
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
@@ -23,6 +26,7 @@ PATH_PT = ROOT / "best_segm.pt"
 
 
 def get_center(img_orig, model):
+
     stride, names, pt = model.stride, model.names, model.pt
     
     img = img_orig.transpose((2, 0, 1))[::-1]   # HWC to CHW, BGR to RGB
@@ -82,39 +86,139 @@ def get_center(img_orig, model):
     img = annotator.result()
     cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
     cv2.imshow("a", img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     print("Found with center: ", cX, cY)
     return cX, cY
 
 
+def get_command(cam_point, trans):
+    cp_new = np.append(cam_point, [1])
+    rp2 = np.dot(trans, cp_new.T)
+    rp2[0] -= 50
+    rp2[2] += 12
+
+    stri = np.array2string(rp2, formatter={'float_kind':lambda x: "%.2f" % x})
+    cmd = "MJ " + stri[1:-1]
+    return cmd
+
+
+def cmd_to_robot(sock, cmd):
+    sock.send(cmd.encode('ASCII'))
+    data = sock.recv(1024)
+    print(data.decode('ASCII'))
+
+
 def main():
+    # Load tranform matrix
+    trans = np.loadtxt("matrix.txt")
+
+    #create socket, connect to robot controller and send data
+    sock = socket.socket()
+    sock.connect(("192.168.125.1", 1488))
+
     # Load model
-    device = select_device("")
+    device = select_device(""
+    )
     model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
     stride, names, pt = model.stride, model.names, model.pt
-    imgsz = check_img_size((480, 640), s=stride)  # check image size
+    imgsz = check_img_size((1280, 736), s=stride)  # check image size
 
     # Run inference
-    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
+    #model.warmup(imgsz=(1, 3, *imgsz))  # warmup
     #img_orig = cv.imread("3.jpg")
 
-    vid_capture = cv2.VideoCapture(1)
+    # Configure depth and color streams
+    pipeline = rs.pipeline()
+    config = rs.config()
+    config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
 
-    while(vid_capture.isOpened()):
-        ret, frame = vid_capture.read()
-        if ret == True:
-            print(frame.shape) 
-            get_center(frame, model)
+    profile = pipeline.start(config)
 
-            key = cv2.waitKey(0)
-            if (key == ord('q')) or key == 27:
+    depth_sensor = profile.get_device().first_depth_sensor()
+    depth_sensor.set_option(rs.option.visual_preset, 4) # High density preset
+
+    align_to = rs.stream.depth
+    align = rs.align(align_to)
+    fltr = rs.temporal_filter()
+
+    is_work = 1
+
+    while(is_work):
+
+        frames = pipeline.wait_for_frames()
+
+        color_frame = frames.get_color_frame()
+        color_frame = np.asanyarray(color_frame.get_data())
+
+        pad = np.ones((16, 1280, 3), dtype=np.uint8)
+        color_frame = np.append(color_frame, pad, axis=0)
+
+        x, y = get_center(color_frame, model)
+
+        if x==0:
+            print("Didnt find center")
+            continue
+
+        # get depth
+        while True:
+
+            frames = pipeline.wait_for_frames()
+            aligned_frames = align.process(frames)
+            depth_frame = aligned_frames.get_depth_frame()
+
+            if not depth_frame or not aligned_frames:
+                continue
+
+            pc = rs.pointcloud()
+            depth_frame_fltr = fltr.process(depth_frame)
+            points_pc = pc.calculate(depth_frame_fltr)
+            depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
+            w, h = depth_intrinsics.width, depth_intrinsics.height
+            verts = np.asarray(points_pc.get_vertices()).view(np.float32).reshape(h, w, 3)[:, :, 2]
+            
+            depth_matr = verts[int(y)-2:int(y)+5, int(x)-2:int(x)+5]
+            nonzero = depth_matr[np.nonzero(depth_matr)]
+
+            if nonzero.shape[0] == 0:
+                continue
+            
+            depth = np.mean(nonzero)
+
+            if depth == 0 or np.isnan(depth):
+                time.sleep(0.2)
+            else:
                 break
-        else:
+
+        cam_points = np.array(rs.rs2_deproject_pixel_to_point(depth_intrinsics,
+                    [x, y], depth))
+
+        if np.isnan(cam_points[0]):
+            print("Camera return Nones")
+            continue
+
+        #print("Depth: ", depth, "\nCamera points: ", cam_points)
+        cmd = get_command(cam_points * 1000, trans)
+        print("\nCommand for robot: ", cmd)
+
+        cmd_to_robot(sock, cmd)
+        print("e to exit")
+        a = input()
+
+        if a == "e":
+            is_work = 0
             break
+        elif a == "c":
+            continue
+        
+        cmd_to_robot(sock, "PSTART ")
+        time.sleep(1)
+        cmd_to_robot(sock, "MJ 0 0 200")
+        time.sleep(2)
+        cmd_to_robot(sock, "PSTOP ")
 
-    cv2.destroyAllWindows()
-
-    
 
 if __name__ == '__main__':
     main()

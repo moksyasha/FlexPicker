@@ -9,7 +9,7 @@ VAR socketdev clientSocket;
 !CONST extjoint DUMMY_EXTAX := [9E+09,9E+09,9E+09,9E+09,9E+09,9E+09];
 !CONST pos DUMMY_POS := [0,0,0];
 !CONST robtarget DUMMY_ROBT := [DUMMY_POS,DUMMY_ROT,DUMMY_ROBCONF,DUMMY_EXTAX];
-CONST robtarget ROBT_DEFAULT := [[0,0,0],[0,1,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+CONST robtarget ROBT_DEFAULT := [[0,0,200],[0,1,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
 CONST speeddata SD_DEFAULT := v200;
 CONST zonedata ZD_DEFAULT := z0;
 
@@ -73,14 +73,20 @@ PROC main()
     VAR num y;
     VAR num z;
     
-    MoveJ ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+    x:=0;
+    y:=0;
+    z:=200;
+    found:=0;
+    prev_found:=0;
+    
+    MoveL ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
 
-    SetDO Local_IO_0_DO1, 1;
+    !SetDO Local_IO_0_DO8, 1;
     SocketCreate serverSocket;
     SocketBind serverSocket, "192.168.125.1", 1488;
     SocketListen serverSocket;
     SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
-    SetDO Local_IO_0_DO1, 0;
+    !SetDO Local_IO_0_DO8, 0;
     
     WHILE command<>"exit" DO
         receive_cmd:= Receive();
@@ -113,17 +119,26 @@ PROC main()
             !found := StrFind(receive_cmd, prev_found+1, STR_WHITE);
             tmp_str := StrPart(receive_cmd, prev_found+1, StrLen(receive_cmd)-found);
             check := StrToVal(tmp_str, z);
+            
+            new_point.trans.x := x;
+            new_point.trans.y := y;
+            new_point.trans.z := z;
+            
+            check:=IsReachable(new_point);
+            
+        ELSEIF command = "PSTART" THEN
+            SetDO Local_IO_0_DO1, 1;
+            check:=TRUE;
+        ELSEIF command = "PSTOP" THEN
+            check:=TRUE;
+            SetDO Local_IO_0_DO1, 0;
         ENDIF
-        
-        new_point.trans.x := x;
-        new_point.trans.y := y;
-        new_point.trans.z := z;
-        
-        check:=IsReachable(new_point);
         
         IF check THEN
             Send("cmd accepted");
-            MoveJ new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+            IF command = "MJ" THEN
+                MoveL new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+            ENDIF
         ELSE
             Send("wrong cmd!");
         ENDIF
@@ -131,7 +146,7 @@ PROC main()
         check:=FALSE;
         x:=0;
         y:=0;
-        z:=0;
+        z:=200;
         found:=0;
         prev_found:=0;
         

@@ -13,7 +13,7 @@ import pyrealsense2 as rs
 camera_matrix = [[644.034, 0.0, 632.666], [0.0, 644.034, 362.382], [0.0, 0.0, 1.0]]
 
 def get_center(img):
-    img = cv2.rectangle(img, (0, 0), (1050, 620), (255, 255, 255), 150)
+    #img = cv2.rectangle(img, (0, 0), (1050, 620), (255, 255, 255), 150)
     img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
     filter1 = cv2.inRange(img_hsv, np.array([0, 100, 100]), np.array([0, 255, 255]))
@@ -54,36 +54,8 @@ def get_world_coords(x, y, depth):
     v = np.array([x, y, 1]) * depth
     return np.dot(f, v)
 
-https://coder.social/IntelRealSense/librealsense/issues/9945
-### Project Color Pixel coordinate to Depth Pixel coordinate
-def ProjectColorPixeltoDepthPixel(depth_frame, depth_scale, 
-                                depth_min, depth_max, depth_intrinsic, color_intrinsic, 
-                                depth_to_color_extrinsic, color_to_depth_extrinsic, 
-                                color_pixel):
-
-    depth_pixel = rs.rs2_project_color_pixel_to_depth_pixel(depth_frame.get_data(), depth_scale, 
-                    depth_min, depth_max, depth_intrinsic, color_intrinsic, 
-                    depth_to_color_extrinsic, color_to_depth_extrinsic, 
-                    color_pixel)
-    
-    return depth_pixel
-
-
-### Deproject Depth Pixel coordinate to Depth Point coordinate
-def DeProjectDepthPixeltoDepthPoint(depth_frame, depth_intrinsic, x_depth_pixel, y_depth_pixel):
-
-    depth = depth_frame.get_distance(int(x_depth_pixel), int(y_depth_pixel))
-
-    depth_point = rs.rs2_deproject_pixel_to_point(depth_intrinsic, [int(x_depth_pixel), int(y_depth_pixel)], depth)
-    
-    return depth, depth_point
-
 
 def main():
-
-    # img = cv2.imread('2.png', cv2.IMREAD_COLOR)[0:480, 0:640]
-    # cv2.imshow('frame1', get_center(img)[2])
-    # cv2.waitKey(0)
 
     # create socket, connect to RobotStudio server and send data
     sock = socket.socket()
@@ -105,10 +77,10 @@ def main():
 
     points = np.array(["300 100 0", "-300 100 0", "-300 -100 0", "300 -100 0",
                         "300 -100 200", "-300 -100 200", "-300 100 200", "300 100 200", "0 0 100"])
+                        # "200 200 10", "-200 200 10", "-200 -200 10", "200 -200 10",
+                        # "200 -200 200", "-200 -200 200", "-200 200 200", "200 200 200", "0 0 200"])
     
-    fltr = rs.temporal_filter()
     main_arr = []
-    main_arr2 = []
     robot_points = []
 
     # folder = "/calibration_" + strftime("%m_%d_%H_%M_%S", gmtime()) + "/"
@@ -121,8 +93,8 @@ def main():
 
         data = sock.recv(1024)
         print(data.decode('ASCII'))
-        input()
 
+        input()
         frames = pipeline.wait_for_frames()
 
         aligned_frames = align.process(frames)
@@ -133,28 +105,35 @@ def main():
         if not depth_frame or not aligned_frames:
             continue
 
-        # 1 try https://github.com/IntelRealSense/librealsense/issues/6749
+        # try https://github.com/IntelRealSense/librealsense/issues/6749
         depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
         w, h = depth_intrinsics.width, depth_intrinsics.height
 
         x, y, result = get_center(color_frame)
+        if x == 0:
+            print("Couldnt find center! " + str(i))
+            continue
+
         cv2.imshow("a", result)
-        cv2.imwrite(str(i) + '.png', color_frame)
+        #cv2.imwrite(str(i) + '.png', color_frame)
         cv2.waitKey(1000)
 
         pc = rs.pointcloud()
-        depth_frame_fltr = fltr.process(depth_frame)
-        points_pc = pc.calculate(depth_frame_fltr)
+        points_pc = pc.calculate(depth_frame)
         verts = np.asarray(points_pc.get_vertices()).view(np.float32).reshape(h, w, 3)
-        print(verts.shape)
-        np.savetxt("depth_" + str(i) + ".txt", verts[:, :, 2])
+
+        # save depth channel
+        #np.savetxt("depth_" + str(i) + ".txt", verts[:, :, 2])
 
         dx, dy, dz = rs.rs2_deproject_pixel_to_point(depth_intrinsics,
                     [x, y], verts[int(y)][int(x)][2])
+
+        if dz == 0:
+            print("Couldnt find depth! " + str(i))
+            continue
+
         distance = math.sqrt(((dx)**2) + ((dy)**2) + ((dz)**2))
         arr = []
-        arr.append(x)
-        arr.append(y)
         arr.append(dx)
         arr.append(dy)
         arr.append(dz)
@@ -167,7 +146,7 @@ def main():
         robot_points.append(str_point)
 
     robot_points = np.array(robot_points)
-    main_arr1 = np.array(main_arr)
+    main_arr = np.array(main_arr)
     np.savetxt("cp.txt", main_arr)
     np.savetxt("rp.txt", robot_points)
 

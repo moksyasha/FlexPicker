@@ -74,13 +74,18 @@ def affine(rp, cp):
 def rigid(rp, cp):
     print("Orig: \n", np.array(rp).astype(np.int32))
     ret_R, ret_t = rigid_transform_3D(cp, rp)
-    rp2 = (ret_R@cp) + ret_t
-    print("Palb: \n", np.array(rp2).astype(np.int32))
-    err = rp2 - rp
+
+    cpnew = np.append(cp, np.ones((1, cp.shape[1])), axis=0)
+    matrix = np.append(ret_R, ret_t, axis=1)
+    print("Matrix: \n", matrix)
+    rp3 = matrix@cpnew
+    print("new: \n", rp3.astype(np.int32))
+    err = rp3 - rp
     err = err * err
     err = np.sum(err)
-    rmse = np.sqrt(err/rp2.shape[0])
+    rmse = np.sqrt(err/9)
     print("RMSE:", rmse)
+    return matrix
 
 
 def get_world_coords(x, y, depth):
@@ -96,23 +101,25 @@ def get_world_coords(x, y, depth):
 
 
 def main():
-
+    
     rp = np.loadtxt("rp.txt")
     cp = np.loadtxt("cp.txt") * 1000
-    # #create 3d axes
+
+    # # #create 3d axes
     fig = plt.figure()
     ax = plt.axes(projection='3d')
     
     ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
     ax.view_init(60, 50)
-    ax.plot3D(cp[:, 2], cp[:, 3], cp[:, 4], 'blue')
+    ax.plot3D(cp[:, 0], cp[:, 1], cp[:, 2], 'blue')
     ax.view_init(60, 50)
     plt.show()
-    cp = cp[:, [2, 3, 4]]
-    # print(rp.shape, cp.shape)
+    cp = cp[:, [0, 1, 2]]
+    # # print(rp.shape, cp.shape)
     trans = affine(rp, cp)
-    np.savetxt("transform.txt", trans)
-    # rigid(rp.T, cp.T)
+    
+    matrix = rigid(rp.T, cp.T)
+    np.savetxt("matrix.txt", matrix)
     
 
 
