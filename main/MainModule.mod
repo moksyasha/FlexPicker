@@ -18,8 +18,29 @@ FUNC string Receive()
         
     SocketReceive clientSocket, \Str:=msg, \Time:=WAIT_MAX;
     !SocketSend clientSocket, \Str:=msg + " got!";
-        
+
     RETURN msg;
+    
+    ERROR
+    IF ERRNO=ERR_SOCK_TIMEOUT THEN
+        RETRY;
+    ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
+        MoveL ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        SetDO Local_IO_0_DO8, 0;
+        SetDO Local_IO_0_DO1, 0;
+        SocketClose clientSocket;
+        SocketClose serverSocket;
+        SocketCreate serverSocket;
+        SocketBind serverSocket, "192.168.125.1", 1488;
+        SocketListen serverSocket;
+        SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
+        RETRY;
+    ELSE
+
+        SocketClose clientSocket;
+        SocketClose serverSocket;
+        stop;
+    ENDIF
 ENDFUNC
 
 
@@ -82,6 +103,8 @@ PROC main()
     MoveL ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
 
     !SetDO Local_IO_0_DO8, 1;
+    SetDO Local_IO_0_DO8, 0;
+    SetDO Local_IO_0_DO1, 0;
     SocketCreate serverSocket;
     SocketBind serverSocket, "192.168.125.1", 1488;
     SocketListen serverSocket;
@@ -126,18 +149,24 @@ PROC main()
             
             check:=IsReachable(new_point);
             
-        ELSEIF command = "PSTART" THEN
+        ELSEIF command = "PUMP_START" THEN
             SetDO Local_IO_0_DO1, 1;
             check:=TRUE;
-        ELSEIF command = "PSTOP" THEN
+        ELSEIF command = "PUMP_STOP" THEN
             check:=TRUE;
             SetDO Local_IO_0_DO1, 0;
+        ELSEIF command = "VALVE_OPEN" THEN
+            SetDO Local_IO_0_DO8, 0;
+            check:=TRUE;
+        ELSEIF command = "VALVE_CLOSE" THEN
+            SetDO Local_IO_0_DO8, 1;
+            check:=TRUE;
         ENDIF
         
         IF check THEN
             Send("cmd accepted");
             IF command = "MJ" THEN
-                MoveL new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+                MoveJ new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
             ENDIF
         ELSE
             Send("wrong cmd!");
@@ -152,6 +181,9 @@ PROC main()
         
     ENDWHILE
     
+    MoveL ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+    SetDO Local_IO_0_DO8, 0;
+    SetDO Local_IO_0_DO1, 0;
     SocketClose clientSocket;
     SocketClose serverSocket;
     stop;
@@ -160,14 +192,18 @@ PROC main()
     IF ERRNO=ERR_SOCK_TIMEOUT THEN
         RETRY;
     ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
+        MoveL ROBT_DEFAULT,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        SetDO Local_IO_0_DO8, 0;
+        SetDO Local_IO_0_DO1, 0;
         SocketClose clientSocket;
         SocketClose serverSocket;
         SocketCreate serverSocket;
-        SocketBind serverSocket, "127.0.0.1", 1488;
+        SocketBind serverSocket, "192.168.125.1", 1488;
         SocketListen serverSocket;
         SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
         RETRY;
     ELSE
+
         SocketClose clientSocket;
         SocketClose serverSocket;
         stop;

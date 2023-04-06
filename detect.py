@@ -20,10 +20,14 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.segment.general import masks2segments, process_mask, process_mask_native
 from utils.torch_utils import select_device, smart_inference_mode
 
+from threading import Thread
+from threading import Event
+import pyzbar.pyzbar as pyzbar
+
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
 PATH_PT = ROOT / "best_segm.pt"
-
+stop_thread = False
 
 def get_center(img_orig, model):
 
@@ -86,37 +90,77 @@ def get_center(img_orig, model):
     img = annotator.result()
     cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
     cv2.imshow("a", img)
-    cv2.waitKey(0)
+    cv2.waitKey(1000)
     cv2.destroyAllWindows()
 
     print("Found with center: ", cX, cY)
     return cX, cY
 
 
+
 def get_command(cam_point, trans):
     cp_new = np.append(cam_point, [1])
     rp2 = np.dot(trans, cp_new.T)
     rp2[0] -= 50
-    rp2[2] += 12
+    rp2[1] -= 20
+    rp2[2] += 20
 
     stri = np.array2string(rp2, formatter={'float_kind':lambda x: "%.2f" % x})
-    cmd = "MJ " + stri[1:-1]
-    return cmd
+    cmd = "MJ_ARC " + stri[1:-1]
+    return cmd, rp2
 
 
 def cmd_to_robot(sock, cmd):
     sock.send(cmd.encode('ASCII'))
     data = sock.recv(1024)
-    print(data.decode('ASCII'))
+    print(data.decode('ASCII') + " :" + cmd)
+
+
+def decodeBar(image):
+    barcodes = pyzbar.decode(image)
+    for barcode in barcodes:
+        (x, y, w, h) = barcode.rect
+        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 0, 255), 2)
+
+        barcodeData = barcode.data.decode("utf-8")
+        barcodeType = barcode.type
+
+        text = "{} ({})".format(barcodeData, barcodeType)
+        cv2.putText(image, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    .5, (0, 0, 125), 2)
+
+        print("[INFO] Found {} barcode: {}".format(barcodeType, barcodeData))
+    return image
+
+
+def camera_thread(camera, out, stop_event):
+    while True:
+        ret, frame = camera.read()
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        im = decodeBar(frame)
+        cv2.imshow("camera", im)
+        out.write(im)
+        if stop_event.is_set():
+            print("camera thread closed!")
+            break
 
 
 def main():
     # Load tranform matrix
     trans = np.loadtxt("matrix.txt")
 
+    # web camera
+    camera = cv2.VideoCapture(3)
+    out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
+    stop_event = Event()
+    thread_camera = Thread(target=camera_thread, args=(camera, out, stop_event,))
+    
     #create socket, connect to robot controller and send data
     sock = socket.socket()
     sock.connect(("192.168.125.1", 1488))
+
+    #cmd_to_robot(sock, "VALVE_OPEN")
+    #cmd_to_robot(sock, "PUMP_STOP ")
 
     # Load model
     device = select_device(""
@@ -147,7 +191,8 @@ def main():
     is_work = 1
 
     while(is_work):
-
+        cmd_to_robot(sock, "VALVE_OPEN ")
+        cmd_to_robot(sock, "PUMP_START ")
         frames = pipeline.wait_for_frames()
 
         color_frame = frames.get_color_frame()
@@ -200,25 +245,48 @@ def main():
             continue
 
         #print("Depth: ", depth, "\nCamera points: ", cam_points)
-        cmd = get_command(cam_points * 1000, trans)
-        print("\nCommand for robot: ", cmd)
+        cmd, coord = get_command(cam_points * 1000, trans)
+        #print("\nCommand for robot: ", cmd)
 
+        thread_camera.start()
+        # takes a box
         cmd_to_robot(sock, cmd)
-        print("e to exit")
-        a = input()
 
-        if a == "e":
-            is_work = 0
-            break
-        elif a == "c":
-            continue
+        # pick box up
+        coord[2] += 100
+        stri = np.array2string(coord, formatter={'float_kind':lambda x: "%.2f" % x})
+        cmd = "MJ " + stri[1:-1]
+        cmd_to_robot(sock, cmd)
+        # print("e to exit")
+        # a = input()
+
+        # if a == "e":
+        #     is_work = 0
+        #     break
+        # elif a == "c":
+        #     continue
         
-        cmd_to_robot(sock, "PSTART ")
-        time.sleep(1)
-        cmd_to_robot(sock, "MJ 0 0 200")
-        time.sleep(2)
-        cmd_to_robot(sock, "PSTOP ")
+        #cmd_to_robot(sock, "VALVE_CLOSE ")
 
+        cmd_to_robot(sock, "MJ -165 -228 73")
+        cmd_to_robot(sock, "MJ -165 -228 33")
+
+        cmd_to_robot(sock, "ROT ")
+        cmd_to_robot(sock, "ROT ")
+
+        cmd_to_robot(sock, "VALVE_CLOSE ")
+        cmd_to_robot(sock, "MJ 0 0 200")
+
+        stop_event.set()
+        thread_camera.join()
+        is_work = 0
+
+    camera.release()
+    out.release()
+    cv2.destroyAllWindows()
+    # cmd_to_robot(sock, "MJ 0 0 200")
+    # cmd_to_robot(sock, "VALVE_OPEN ")
+    # cmd_to_robot(sock, "PUMP_STOP ")
 
 if __name__ == '__main__':
     main()
