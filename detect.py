@@ -29,7 +29,8 @@ ROOT = FILE.parents[0]
 PATH_PT = ROOT / "best_segm.pt"
 stop_thread = False
 
-def get_center(img_orig, model):
+
+def get_center(img_orig, model, show_output=0):
 
     stride, names, pt = model.stride, model.names, model.pt
     
@@ -37,7 +38,8 @@ def get_center(img_orig, model):
     img = np.ascontiguousarray(img)
     img = torch.from_numpy(img).to(model.device).float()
     img /= 255.
-
+    img[:, :, 640:] = 0
+    
     if len(img.shape) == 3:
         img = img[None]  # expand for batch dim
 
@@ -49,12 +51,12 @@ def get_center(img_orig, model):
     agnostic_nms=False
     pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=100, nm=32)
 
-    annotator = Annotator(img_orig, line_width=3, example=str(names))
     # Process predictions
     det = pred[0]
     
     cX = 0
     cY = 0
+    angle = 0
 
     if len(det): # if found smth
         #(det[:, 6:] набор коорд боксов с conf и class shape(n, 32)
@@ -62,48 +64,70 @@ def get_center(img_orig, model):
         det[:, :4] = scale_boxes(img.shape[2:], det[:, :4], img_orig.shape).round()  # rescale boxes to im0 size  #shape(n, 38)
         ind_conf = torch.argmax(det[:, 4]) # find index of max confidence
 
-        #Mask plotting
-        annotator.masks(
-                masks,
-                colors=[colors(x, True) for x in det[:, 5]],
-                im_gpu=img[0])
-        
-        #Write results
-        for j, (*xyxy, conf, cls) in enumerate(det[:, :6]):
-            c = int(cls)  # integer class
-            label = f'{names[c]} {conf:.2f}'
-            color_bbox = 0 if (j!=ind_conf) else 10
-            annotator.box_label(xyxy, label, color=colors(color_bbox, True))
-
-        img = annotator.result()
-        
-        # find center of area 
         mask = masks[ind_conf].cpu().detach().numpy()
         mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
         cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         cnts = imutils.grab_contours(cnts)
-        M = cv2.moments(cnts[0])
-        cX = int(M["m10"] / (M["m00"]+1e-10))
-        cY = int(M["m01"] / (M["m00"]+1e-10))
-	    # draw the contour and center of the shape on the image
-        
-    img = annotator.result()
-    cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
-    cv2.imshow("a", img)
-    cv2.waitKey(1000)
-    cv2.destroyAllWindows()
+        largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
+        rect = cv.minAreaRect(largest_cnt)
+        (cX, cY), _, angle = rect
 
-    print("Found with center: ", cX, cY)
-    return cX, cY
+        if angle > 45:
+            angle = -90 + angle 
+
+        if show_output:
+            annotator = Annotator(img_orig, line_width=3, example=str(names))
+            #Mask plotting
+            annotator.masks(
+                    masks,
+                    colors=[colors(x, True) for x in det[:, 5]],
+                    im_gpu=img[0])
+
+            img_orig = annotator.result()
+
+            #Write results
+            for j, (*xyxy, conf, cls) in enumerate(det[:, :6]):
+                #x1, y1, x2, y2 = list(map(lambda x: x.cpu().detach().numpy().astype(int), xyxy))
+                #box_img = img_orig[y1-3:y2+3, x1-3:x2+3, :]
+                thickness = 8 if j == ind_conf else 2
+                mask = masks[j].cpu().detach().numpy()
+                mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
+                cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = imutils.grab_contours(cnts)
+                largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
+                rect = cv.minAreaRect(largest_cnt)
+                (cirX, cirY), _, angle_box = rect
+                
+                # counter clock wise
+                if angle_box > 45:
+                    angle_box = -90 + angle_box
+
+                cv2.circle(img_orig, (int(cirX), int(cirY)), 3, (255, 255, 255), -1)
+                img_orig = cv2.putText(img_orig, str(int(angle_box)), (int(cirX), int(cirY-5)), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                box = cv.boxPoints(rect)
+                box = np.int0(box)
+                cv.drawContours(img_orig, [box], 0, (255, 0, 0), thickness)
+
+                # c = int(cls)  # integer class
+                # label = f'{names[c]} {conf:.2f}'
+                # color_bbox = 0 if (j!=ind_conf) else 10
+                # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
+
+            cv.imshow('img', img_orig)
+            cv2.waitKey(0)
+
+    print(f"Found with center: {cX, cY}, angle: {angle}")
+    return cX, cY, angle
 
 
 
 def get_command(cam_point, trans):
     cp_new = np.append(cam_point, [1])
     rp2 = np.dot(trans, cp_new.T)
-    rp2[0] -= 50
-    rp2[1] -= 20
-    rp2[2] += 20
+    rp2[0] -= 30
+    #rp2[1] -= 20
+    rp2[2] += 10
 
     stri = np.array2string(rp2, formatter={'float_kind':lambda x: "%.2f" % x})
     cmd = "MJ_ARC " + stri[1:-1]
@@ -114,6 +138,12 @@ def cmd_to_robot(sock, cmd):
     sock.send(cmd.encode('ASCII'))
     data = sock.recv(1024)
     print(data.decode('ASCII') + " :" + cmd)
+    # if data.decode('ASCII') == "cmd wrong!":
+    #     print(data.decode('ASCII') + " :" + cmd)
+    #     return 0
+    # else:
+    #     print(data.decode('ASCII') + " :" + cmd)
+    #     return 1
 
 
 def decodeBar(image):
@@ -133,13 +163,14 @@ def decodeBar(image):
     return image
 
 
-def camera_thread(camera, out, stop_event):
+def camera_thread(camera, stop_event):
     while True:
         ret, frame = camera.read()
-        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
         im = decodeBar(frame)
         cv2.imshow("camera", im)
-        out.write(im)
+        cv2.waitKey(10)
+        #out.write(im)
         if stop_event.is_set():
             print("camera thread closed!")
             break
@@ -151,9 +182,9 @@ def main():
 
     # web camera
     camera = cv2.VideoCapture(3)
-    out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
+    #out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
     stop_event = Event()
-    thread_camera = Thread(target=camera_thread, args=(camera, out, stop_event,))
+    thread_camera = Thread(target=camera_thread, args=(camera, stop_event,))
     
     #create socket, connect to robot controller and send data
     sock = socket.socket()
@@ -188,11 +219,14 @@ def main():
     align = rs.align(align_to)
     fltr = rs.temporal_filter()
 
-    is_work = 1
+    thread_camera.start()
+    is_work = 2
+    cmd_to_robot(sock, "PUMP_START ")
 
     while(is_work):
+        cmd_to_robot(sock, "MJ 0 0 200")
         cmd_to_robot(sock, "VALVE_OPEN ")
-        cmd_to_robot(sock, "PUMP_START ")
+        
         frames = pipeline.wait_for_frames()
 
         color_frame = frames.get_color_frame()
@@ -201,7 +235,7 @@ def main():
         pad = np.ones((16, 1280, 3), dtype=np.uint8)
         color_frame = np.append(color_frame, pad, axis=0)
 
-        x, y = get_center(color_frame, model)
+        x, y, angle = get_center(color_frame, model, 1)
 
         if x==0:
             print("Didnt find center")
@@ -230,7 +264,7 @@ def main():
             if nonzero.shape[0] == 0:
                 continue
             
-            depth = np.mean(nonzero)
+            depth = np.median(nonzero)
 
             if depth == 0 or np.isnan(depth):
                 time.sleep(0.2)
@@ -244,45 +278,38 @@ def main():
             print("Camera return Nones")
             continue
 
-        #print("Depth: ", depth, "\nCamera points: ", cam_points)
         cmd, coord = get_command(cam_points * 1000, trans)
-        #print("\nCommand for robot: ", cmd)
 
-        thread_camera.start()
         # takes a box
         cmd_to_robot(sock, cmd)
+        time.sleep(1)
 
         # pick box up
-        coord[2] += 100
+        coord[2] = 250
         stri = np.array2string(coord, formatter={'float_kind':lambda x: "%.2f" % x})
         cmd = "MJ " + stri[1:-1]
         cmd_to_robot(sock, cmd)
-        # print("e to exit")
-        # a = input()
 
-        # if a == "e":
-        #     is_work = 0
-        #     break
-        # elif a == "c":
-        #     continue
-        
-        #cmd_to_robot(sock, "VALVE_CLOSE ")
-
-        cmd_to_robot(sock, "MJ -165 -228 73")
+        cmd_to_robot(sock, "ROT " + str(angle))
+        cmd_to_robot(sock, "MJ -165 -228 180")
         cmd_to_robot(sock, "MJ -165 -228 33")
 
-        cmd_to_robot(sock, "ROT ")
-        cmd_to_robot(sock, "ROT ")
+        cmd_to_robot(sock, "ROT 90")
+        cmd_to_robot(sock, "ROT 90")
+        # cmd_to_robot(sock, "ROT 90")
+        # cmd_to_robot(sock, "ROT 90")
 
         cmd_to_robot(sock, "VALVE_CLOSE ")
-        cmd_to_robot(sock, "MJ 0 0 200")
+        time.sleep(2)
+        cmd_to_robot(sock, "VALVE_OPEN ")
 
-        stop_event.set()
-        thread_camera.join()
-        is_work = 0
+        is_work -= 1
 
+    stop_event.set()
+    thread_camera.join()
+    cmd_to_robot(sock, "PUMP_STOP ")
     camera.release()
-    out.release()
+    #out.release()
     cv2.destroyAllWindows()
     # cmd_to_robot(sock, "MJ 0 0 200")
     # cmd_to_robot(sock, "VALVE_OPEN ")

@@ -23,7 +23,7 @@ def detect():
 
     while True:
         ret, frame = camera.read()
-        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
         im = decodeBar(frame)
         cv2.imshow("camera", im)
         if cv2.waitKey(1) & 0xFF == ord('q'):
