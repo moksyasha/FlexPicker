@@ -37,7 +37,8 @@ def get_center(img_orig, model, show_output=0):
     img = np.ascontiguousarray(img)
     img = torch.from_numpy(img).to(model.device).float()
     img /= 255.
-
+    img[:, :, 640:] = 0
+    
     if len(img.shape) == 3:
         img = img[None]  # expand for batch dim
 
