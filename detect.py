@@ -72,6 +72,7 @@ def get_center(img_orig, model, show_output=0):
         rect = cv.minAreaRect(largest_cnt)
         (cX, cY), _, angle = rect
 
+        angle = int(angle)
         if angle > 45:
             angle = -90 + angle 
 
@@ -179,30 +180,19 @@ def camera_thread(camera, stop_event):
 def main():
     # Load tranform matrix
     trans = np.loadtxt("matrix.txt")
-
-    # web camera
-    camera = cv2.VideoCapture(3)
-    #out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
-    stop_event = Event()
-    thread_camera = Thread(target=camera_thread, args=(camera, stop_event,))
     
     #create socket, connect to robot controller and send data
     sock = socket.socket()
     sock.connect(("192.168.125.1", 1488))
 
-    #cmd_to_robot(sock, "VALVE_OPEN")
-    #cmd_to_robot(sock, "PUMP_STOP ")
-
     # Load model
-    device = select_device(""
-    )
+    device = select_device("")
     model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size((1280, 736), s=stride)  # check image size
 
     # Run inference
-    #model.warmup(imgsz=(1, 3, *imgsz))  # warmup
-    #img_orig = cv.imread("3.jpg")
+    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
 
     # Configure depth and color streams
     pipeline = rs.pipeline()
@@ -219,101 +209,126 @@ def main():
     align = rs.align(align_to)
     fltr = rs.temporal_filter()
 
+    # start thread web camera
+    camera = cv2.VideoCapture(3)
+    #out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
+    stop_event = Event()
+    thread_camera = Thread(target=camera_thread, args=(camera, stop_event,))
     thread_camera.start()
+
+    # two boxes
     is_work = 2
     cmd_to_robot(sock, "PUMP_START ")
 
     while(is_work):
-        cmd_to_robot(sock, "MJ 0 0 200")
-        cmd_to_robot(sock, "VALVE_OPEN ")
         
-        frames = pipeline.wait_for_frames()
-
-        color_frame = frames.get_color_frame()
-        color_frame = np.asanyarray(color_frame.get_data())
-
-        pad = np.ones((16, 1280, 3), dtype=np.uint8)
-        color_frame = np.append(color_frame, pad, axis=0)
-
-        x, y, angle = get_center(color_frame, model, 1)
-
-        if x==0:
-            print("Didnt find center")
-            continue
-
-        # get depth
-        while True:
-
+        try:
+            cmd_to_robot(sock, "MJ 0 0 200")
+            cmd_to_robot(sock, "VALVE_OPEN ")
+            
             frames = pipeline.wait_for_frames()
-            aligned_frames = align.process(frames)
-            depth_frame = aligned_frames.get_depth_frame()
 
-            if not depth_frame or not aligned_frames:
+            color_frame = frames.get_color_frame()
+            color_frame = np.asanyarray(color_frame.get_data())
+
+            pad = np.ones((16, 1280, 3), dtype=np.uint8)
+            color_frame = np.append(color_frame, pad, axis=0)
+
+            x, y, angle = get_center(color_frame, model, 1)
+
+            if x==0:
+                print("Didnt find center")
                 continue
 
-            pc = rs.pointcloud()
-            depth_frame_fltr = fltr.process(depth_frame)
-            points_pc = pc.calculate(depth_frame_fltr)
-            depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
-            w, h = depth_intrinsics.width, depth_intrinsics.height
-            verts = np.asarray(points_pc.get_vertices()).view(np.float32).reshape(h, w, 3)[:, :, 2]
-            
-            depth_matr = verts[int(y)-2:int(y)+5, int(x)-2:int(x)+5]
-            nonzero = depth_matr[np.nonzero(depth_matr)]
+            depth_while = 1000
+            # get depth
+            while depth_while:
 
-            if nonzero.shape[0] == 0:
+                frames = pipeline.wait_for_frames()
+                aligned_frames = align.process(frames)
+                depth_frame = aligned_frames.get_depth_frame()
+
+                if not depth_frame or not aligned_frames:
+                    continue
+
+                pc = rs.pointcloud()
+                depth_frame_fltr = fltr.process(depth_frame)
+                points_pc = pc.calculate(depth_frame_fltr)
+                depth_intrinsics = rs.video_stream_profile(depth_frame.profile).get_intrinsics()
+                w, h = depth_intrinsics.width, depth_intrinsics.height
+                verts = np.asarray(points_pc.get_vertices()).view(np.float32).reshape(h, w, 3)[:, :, 2]
+                
+                depth_matr = verts[int(y)-2:int(y)+5, int(x)-2:int(x)+5]
+                nonzero = depth_matr[np.nonzero(depth_matr)]
+
+                if nonzero.shape[0] == 0:
+                    continue
+                
+                depth = np.median(nonzero)
+
+                if depth == 0 or np.isnan(depth):
+                    time.sleep(0.2)
+                    depth_while -= 1
+                else:
+                    break
+
+            cam_points = np.array(rs.rs2_deproject_pixel_to_point(depth_intrinsics,
+                        [x, y], depth))
+
+            if np.isnan(cam_points[0]):
+                print("Camera return Nones")
                 continue
-            
-            depth = np.median(nonzero)
 
-            if depth == 0 or np.isnan(depth):
-                time.sleep(0.2)
-            else:
-                break
+            cmd, coord = get_command(cam_points * 1000, trans)
 
-        cam_points = np.array(rs.rs2_deproject_pixel_to_point(depth_intrinsics,
-                    [x, y], depth))
+            # rotate manipulator before taking
+            cmd_to_robot(sock, "ROT " + str(angle))
 
-        if np.isnan(cam_points[0]):
-            print("Camera return Nones")
-            continue
+            # take a box
+            cmd_to_robot(sock, cmd)
+            time.sleep(1)
 
-        cmd, coord = get_command(cam_points * 1000, trans)
+            # pick box up
+            coord[2] = 250
+            stri = np.array2string(coord, formatter={'float_kind':lambda x: "%.2f" % x})
+            cmd = "MJ " + stri[1:-1]
+            cmd_to_robot(sock, cmd)
 
-        # takes a box
-        cmd_to_robot(sock, cmd)
-        time.sleep(1)
+            # rotate manipulator after taking for alignment
+            cmd_to_robot(sock, "ROT " + str(angle))
 
-        # pick box up
-        coord[2] = 250
-        stri = np.array2string(coord, formatter={'float_kind':lambda x: "%.2f" % x})
-        cmd = "MJ " + stri[1:-1]
-        cmd_to_robot(sock, cmd)
+            # moving to camera for detecting
+            cmd_to_robot(sock, "MJ -165 -228 180")
+            cmd_to_robot(sock, "MJ -165 -228 33")
 
-        cmd_to_robot(sock, "ROT " + str(angle))
-        cmd_to_robot(sock, "MJ -165 -228 180")
-        cmd_to_robot(sock, "MJ -165 -228 33")
+            # detecting qr
+            time.sleep(0.5)
+            cmd_to_robot(sock, "ROT 90")
+            time.sleep(0.5)
+            cmd_to_robot(sock, "ROT 90")
+            time.sleep(0.5)
+            cmd_to_robot(sock, "ROT 90")
+            time.sleep(0.5)
 
-        cmd_to_robot(sock, "ROT 90")
-        cmd_to_robot(sock, "ROT 90")
-        # cmd_to_robot(sock, "ROT 90")
-        # cmd_to_robot(sock, "ROT 90")
+            # TODO check if not found
 
-        cmd_to_robot(sock, "VALVE_CLOSE ")
-        time.sleep(2)
-        cmd_to_robot(sock, "VALVE_OPEN ")
+            cmd_to_robot(sock, "VALVE_CLOSE ")
+            time.sleep(2)
+            cmd_to_robot(sock, "VALVE_OPEN ")
+            cmd_to_robot(sock, "ROT_BASE")
 
-        is_work -= 1
+            is_work -= 1
+
+        except:
+            print("Something went wrong")
+            is_work = 0
 
     stop_event.set()
     thread_camera.join()
     cmd_to_robot(sock, "PUMP_STOP ")
     camera.release()
-    #out.release()
     cv2.destroyAllWindows()
-    # cmd_to_robot(sock, "MJ 0 0 200")
-    # cmd_to_robot(sock, "VALVE_OPEN ")
-    # cmd_to_robot(sock, "PUMP_STOP ")
+
 
 if __name__ == '__main__':
     main()

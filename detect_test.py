@@ -37,14 +37,14 @@ def get_center(img_orig, model, show_output=0):
     img = np.ascontiguousarray(img)
     img = torch.from_numpy(img).to(model.device).float()
     img /= 255.
-    img[:, :, 640:] = 0
+    #img[:, :, 690:] = 0
     
     if len(img.shape) == 3:
         img = img[None]  # expand for batch dim
 
     pred, proto = model(img, augment=False, visualize=False)[:2]
 
-    conf_thres=0.70
+    conf_thres=0.8
     iou_thres=0.45
     classes=None
     agnostic_nms=False
@@ -71,6 +71,9 @@ def get_center(img_orig, model, show_output=0):
         rect = cv.minAreaRect(largest_cnt)
         (cX, cY), _, angle = rect
 
+        if angle > 45:
+            angle = -90 + angle
+
         if show_output:
             annotator = Annotator(img_orig, line_width=3, example=str(names))
             #Mask plotting
@@ -79,37 +82,39 @@ def get_center(img_orig, model, show_output=0):
                     colors=[colors(x, True) for x in det[:, 5]],
                     im_gpu=img[0])
 
-            img_orig = annotator.result()
+            
 
             #Write results
             for j, (*xyxy, conf, cls) in enumerate(det[:, :6]):
                 #x1, y1, x2, y2 = list(map(lambda x: x.cpu().detach().numpy().astype(int), xyxy))
                 #box_img = img_orig[y1-3:y2+3, x1-3:x2+3, :]
-                thickness = 8 if j == ind_conf else 2
-                mask = masks[j].cpu().detach().numpy()
-                mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
-                cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                cnts = imutils.grab_contours(cnts)
-                largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
-                rect = cv.minAreaRect(largest_cnt)
-                (cirX, cirY), _, angle_box = rect
+                # thickness = 8 if j == ind_conf else 2
+                # mask = masks[j].cpu().detach().numpy()
+                # mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
+                # cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # cnts = imutils.grab_contours(cnts)
+                # largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
+                # rect = cv.minAreaRect(largest_cnt)
+                # (cirX, cirY), _, angle_box = rect
                 
-                # counter clock wise
-                if angle_box > 45:
-                    angle_box = -90 + angle_box
-                #cv2.circle(img_orig, (int(cirX), int(cirY)), 3, (255, 255, 255), -1)
-                img_orig = cv2.putText(img_orig, str(int(angle_box)), (int(cirX), int(cirY-5)), cv2.FONT_HERSHEY_SIMPLEX, 
-                    0.6, (255, 255, 255), 2, cv2.LINE_AA)
-                box = cv.boxPoints(rect)
-                box = np.int0(box)
-                cv.drawContours(img_orig, [box], 0, (255, 0, 0), thickness)
+                # # counter clock wise
+                # if angle_box > 45:
+                #     angle_box = -90 + angle_box
+                # cv2.circle(img_orig, (int(cirX), int(cirY)), 3, (255, 255, 255), -1)
+                # img_orig = cv2.putText(img_orig, str(int(angle_box)), (int(cirX), int(cirY-5)), cv2.FONT_HERSHEY_SIMPLEX, 
+                #     0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                # box = cv.boxPoints(rect)
+                # box = np.int0(box)
+                # cv.drawContours(img_orig, [box], 0, (255, 0, 0), thickness)
 
-                # c = int(cls)  # integer class
-                # label = f'{names[c]} {conf:.2f}'
-                # color_bbox = 0 if (j!=ind_conf) else 10
-                # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
+                c = int(cls)  # integer class
+                label = f'{names[c]} {conf:.2f}'
+                color_bbox = 0 if (j!=ind_conf) else 10
+                annotator.box_label(xyxy, label, color=colors(color_bbox, True))
 
+            img_orig = annotator.result()
             cv.imshow('img', img_orig)
+            cv.imwrite('ximg2.jpg', img_orig)
             cv2.waitKey(0)
 
     print(f"Found with center: {cX, cY}, angle: {angle}")
@@ -168,12 +173,12 @@ def main():
     model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size((1280, 736), s=stride)  # check image size
-    img = cv.imread("test.jpg")
+    img = cv.imread("./depth/3.jpg")
     # cv2.imshow("orig", img)
     # cv2.waitKey()
 
-    pad = np.ones((16, 1280, 3), dtype=np.uint8)
-    img = np.append(img, pad, axis=0)
+    #pad = np.ones((16, 1280, 3), dtype=np.uint8)
+    #img = np.append(img, pad, axis=0)
     get_center(img, model, 1)
 
     cv2.destroyAllWindows()
