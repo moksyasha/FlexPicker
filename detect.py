@@ -126,9 +126,9 @@ def get_center(img_orig, model, show_output=0):
 def get_command(cam_point, trans):
     cp_new = np.append(cam_point, [1])
     rp2 = np.dot(trans, cp_new.T)
-    rp2[0] -= 30
-    #rp2[1] -= 20
-    rp2[2] += 10
+    rp2[0] -= 60
+    rp2[1] -= 15
+    rp2[2] += 17
 
     stri = np.array2string(rp2, formatter={'float_kind':lambda x: "%.2f" % x})
     cmd = "MJ_ARC " + stri[1:-1]
@@ -139,12 +139,6 @@ def cmd_to_robot(sock, cmd):
     sock.send(cmd.encode('ASCII'))
     data = sock.recv(1024)
     print(data.decode('ASCII') + " :" + cmd)
-    # if data.decode('ASCII') == "cmd wrong!":
-    #     print(data.decode('ASCII') + " :" + cmd)
-    #     return 0
-    # else:
-    #     print(data.decode('ASCII') + " :" + cmd)
-    #     return 1
 
 
 def decodeBar(image):
@@ -217,7 +211,7 @@ def main():
     thread_camera.start()
 
     # two boxes
-    is_work = 2
+    is_work = 1
     cmd_to_robot(sock, "PUMP_START ")
 
     while(is_work):
@@ -234,7 +228,7 @@ def main():
             pad = np.ones((16, 1280, 3), dtype=np.uint8)
             color_frame = np.append(color_frame, pad, axis=0)
 
-            x, y, angle = get_center(color_frame, model, 1)
+            x, y, angle = get_center(color_frame, model, 0)
 
             if x==0:
                 print("Didnt find center")
@@ -264,7 +258,7 @@ def main():
                 if nonzero.shape[0] == 0:
                     continue
                 
-                depth = np.median(nonzero)
+                depth = np.mean(nonzero)
 
                 if depth == 0 or np.isnan(depth):
                     time.sleep(0.2)
@@ -282,7 +276,7 @@ def main():
             cmd, coord = get_command(cam_points * 1000, trans)
 
             # rotate manipulator before taking
-            cmd_to_robot(sock, "ROT " + str(angle))
+            cmd_to_robot(sock, "ROT " + str(-angle))
 
             # take a box
             cmd_to_robot(sock, cmd)
@@ -302,20 +296,20 @@ def main():
             cmd_to_robot(sock, "MJ -165 -228 33")
 
             # detecting qr
-            time.sleep(0.5)
+            time.sleep(1.5)
             cmd_to_robot(sock, "ROT 90")
-            time.sleep(0.5)
+            time.sleep(1.5)
             cmd_to_robot(sock, "ROT 90")
-            time.sleep(0.5)
+            time.sleep(1.5)
             cmd_to_robot(sock, "ROT 90")
-            time.sleep(0.5)
+            time.sleep(1.5)
 
             # TODO check if not found
 
             cmd_to_robot(sock, "VALVE_CLOSE ")
             time.sleep(2)
             cmd_to_robot(sock, "VALVE_OPEN ")
-            cmd_to_robot(sock, "ROT_BASE")
+            cmd_to_robot(sock, "ROT_BASE ")
 
             is_work -= 1
 
