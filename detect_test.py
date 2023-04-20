@@ -26,9 +26,11 @@ import pyzbar.pyzbar as pyzbar
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
-PATH_PT = ROOT / "best_segm.pt"
+#PATH_PT = ROOT / "best_x_50epochs.pt"
+PATH_PT = ROOT / "bestx.pt"
 stop_thread = False
 
+ 
 def get_center(img_orig, model, show_output=0):
 
     stride, names, pt = model.stride, model.names, model.pt
@@ -81,78 +83,41 @@ def get_center(img_orig, model, show_output=0):
                     masks,
                     colors=[colors(x, True) for x in det[:, 5]],
                     im_gpu=img[0])
-
-            
-
+            img_orig = annotator.result()
             #Write results
             for j, (*xyxy, conf, cls) in enumerate(det[:, :6]):
                 #x1, y1, x2, y2 = list(map(lambda x: x.cpu().detach().numpy().astype(int), xyxy))
-                #box_img = img_orig[y1-3:y2+3, x1-3:x2+3, :]
-                # thickness = 8 if j == ind_conf else 2
-                # mask = masks[j].cpu().detach().numpy()
-                # mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
-                # cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                # cnts = imutils.grab_contours(cnts)
-                # largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
-                # rect = cv.minAreaRect(largest_cnt)
-                # (cirX, cirY), _, angle_box = rect
+                # box_img = img_orig[y1-3:y2+3, x1-3:x2+3, :]
+                thickness = 8 if j == ind_conf else 2
+                mask = masks[j].cpu().detach().numpy()
+                mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
+                cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                cnts = imutils.grab_contours(cnts)
+                largest_cnt = sorted(cnts, key = cv2.contourArea, reverse = True)[0]
+                rect = cv.minAreaRect(largest_cnt)
+                (cirX, cirY), _, angle_box = rect
                 
-                # # counter clock wise
-                # if angle_box > 45:
-                #     angle_box = -90 + angle_box
-                # cv2.circle(img_orig, (int(cirX), int(cirY)), 3, (255, 255, 255), -1)
-                # img_orig = cv2.putText(img_orig, str(int(angle_box)), (int(cirX), int(cirY-5)), cv2.FONT_HERSHEY_SIMPLEX, 
-                #     0.6, (255, 255, 255), 2, cv2.LINE_AA)
-                # box = cv.boxPoints(rect)
-                # box = np.int0(box)
-                # cv.drawContours(img_orig, [box], 0, (255, 0, 0), thickness)
+                # counter clock wise
+                if angle_box > 45:
+                    angle_box = -90 + angle_box
+                cv2.circle(img_orig, (int(cirX), int(cirY)), 3, (255, 255, 255), -1)
+                img_orig = cv2.putText(img_orig, str(int(angle_box)), (int(cirX), int(cirY-5)), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                box = cv.boxPoints(rect)
+                box = np.int0(box)
+                cv.drawContours(img_orig, [box], 0, (255, 0, 0), thickness)
 
-                c = int(cls)  # integer class
-                label = f'{names[c]} {conf:.2f}'
-                color_bbox = 0 if (j!=ind_conf) else 10
-                annotator.box_label(xyxy, label, color=colors(color_bbox, True))
+                # c = int(cls)  # integer class
+                # label = f'{names[c]} {conf:.2f}'
+                # color_bbox = 0 if (j!=ind_conf) else 10
+                # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
 
-            img_orig = annotator.result()
+            #img_orig = annotator.result()
             cv.imshow('img', img_orig)
-            cv.imwrite('ximg2.jpg', img_orig)
             cv2.waitKey(0)
 
     print(f"Found with center: {cX, cY}, angle: {angle}")
     return cX, cY, angle
-        #     x1, y1, x2, y2 = list(map(lambda x: x.cpu().detach().numpy().astype(int), xyxy))
-        #     box = img_orig[y1-3:y2+3, x1-3:x2+3, :]
-
-        #     cv2.imshow("a", box)
-        #     cv2.waitKey(0)
-            # c = int(cls)  # integer class
-            # label = f'{names[c]} {conf:.2f}'
-            # color_bbox = 0 if (j!=ind_conf) else 10
-            # #x1, y1, x2, y2 = 
-            # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
-
-        # img = annotator.result()
-
-        # find center of area
-        # for i in masks:
-
-        
-        # mask = masks[ind_conf].cpu().detach().numpy()
-        # mask = np.expand_dims(mask, axis=0).transpose(1, 2, 0).astype(np.uint8)
-        # cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # cnts = imutils.grab_contours(cnts)
-        # M = cv2.moments(cnts[0])
-        # cX = int(M["m10"] / (M["m00"]+1e-10))
-        # cY = int(M["m01"] / (M["m00"]+1e-10))
-	    # draw the contour and center of the shape on the image
-        
-    # img = annotator.result()
-    # cv2.circle(img, (cX, cY), 7, (255, 255, 255), -1)
-    # cv2.imshow("a", img)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-
-    # print("Found with center: ", cX, cY)
-    # return cX, cY
 
 
 def get_command(cam_point, trans):
@@ -170,16 +135,20 @@ def get_command(cam_point, trans):
 def main():
 
     device = select_device("")
+    M = np.loadtxt("matrix.txt")
+
     model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size((1280, 736), s=stride)  # check image size
-    img = cv.imread("./depth/3.jpg")
-    # cv2.imshow("orig", img)
-    # cv2.waitKey()
+    img = cv.imread("./depth/5.jpg")
 
-    #pad = np.ones((16, 1280, 3), dtype=np.uint8)
-    #img = np.append(img, pad, axis=0)
-    get_center(img, model, 1)
+    # Compute the perspective transform M
+    M = cv2.getPerspectiveTransform(input_pts, output_pts)
+    print(M)
+    rows, cols, ch = img.shape
+    dst = cv.warpPerspective(img, M, (cols, rows), flags=cv2.INTER_LINEAR)
+    cv.imshow("asd", dst)
+    cv2.waitKey(0)
 
     cv2.destroyAllWindows()
 
