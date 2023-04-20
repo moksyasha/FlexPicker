@@ -2,46 +2,45 @@ MODULE MainModule
     
 VAR socketdev serverSocket;
 VAR socketdev clientSocket;
-
+VAR robtarget base_point;
 !CONST hand_params DUMMY_HP := [0,0,0,0];
 !CONST orient DUMMY_ROT := [1,0,0,0];
 !CONST confdata DUMMY_ROBCONF := [0,-1,0,0];
 !CONST extjoint DUMMY_EXTAX := [9E+09,9E+09,9E+09,9E+09,9E+09,9E+09];
 !CONST pos DUMMY_POS := [0,0,0];
 !CONST robtarget DUMMY_ROBT := [DUMMY_POS,DUMMY_ROT,DUMMY_ROBCONF,DUMMY_EXTAX];
-CONST robtarget ROBT_DEFAULT := [[0,0,100],[0,1,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
-CONST speeddata SD_DEFAULT := v50;
-!CONST speeddata SD_DEwFAULT := v500;
-!CONST speeddata SD_DEFAULT := [200,500,5000,1000];
+CONST robtarget ROBT_DEFAULT := [[0,0,200],[0,1,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
+CONST speeddata SD_DEFAULT := v200;
 CONST zonedata ZD_DEFAULT := z0;
-CONST jointtarget j4 := [[9E9,9E9,9E9,9E9,9E9,9E9],[90,9E9,9E9,9E9,9E9,9E9]];
-
 
 FUNC string Receive()
     VAR string msg;
-        
+    VAR robtarget point; 
     SocketReceive clientSocket, \Str:=msg, \Time:=WAIT_MAX;
     !SocketSend clientSocket, \Str:=msg + " got!";
-        
+
     RETURN msg;
     
     ERROR
     IF ERRNO=ERR_SOCK_TIMEOUT THEN
         RETRY;
     ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
+        MoveL base_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        SetDO Local_IO_0_DO8, 0;
+        SetDO Local_IO_0_DO1, 0;
         SocketClose clientSocket;
         SocketClose serverSocket;
         SocketCreate serverSocket;
-        SocketBind serverSocket, "127.0.0.1", 1488;
+        SocketBind serverSocket, "192.168.125.1", 1488;
         SocketListen serverSocket;
         SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
         RETRY;
     ELSE
+
         SocketClose clientSocket;
         SocketClose serverSocket;
         stop;
     ENDIF
-    
 ENDFUNC
 
 
@@ -78,17 +77,6 @@ FUNC bool IsReachable(robtarget pReach)
 ENDFUNC
 
 
-FUNC robtarget get_circle_point(robtarget old, robtarget new)
-    VAR num part := 0.1;
-    VAR robtarget circ_point;
-    circ_point := new;
-    circ_point.trans.x := (new.trans.x + part * old.trans.x)/1.1;
-    circ_point.trans.y := (new.trans.y + part * old.trans.y)/1.1;
-    circ_point.trans.z := circ_point.trans.z + 100;
-    RETURN circ_point;
-ENDFUNC
-
-
 PROC main()
     
     VAR bool check := FALSE;
@@ -101,35 +89,37 @@ PROC main()
     VAR num prev_found;
     
     VAR robtarget new_point := ROBT_DEFAULT;
-    VAR robtarget current_position;
-    VAR robtarget circ_point;
-    
-    VAR num x := 0;
-    VAR num y := 0;
-    VAR num z := 0;
-    
-    VAR num anglex := 0;
-    VAR num angley := 0;
-    VAR num anglez := 0;
-    VAR num plus_angle := 0;
-    
-    VAR speeddata rot_speed := [0, 0, 0, 200];
+    VAR robtarget temp_point;
+    VAR num x;
+    VAR num y;
+    VAR num z;
+    VAR num anglex;
+    VAR num angley;
+    VAR num anglez;
+    VAR num futureAngle := 0;
+    VAR speeddata speed_rot := [100, 100, 100, 100];
     
     x:=0;
     y:=0;
-    z:=150;
+    z:=200;
     found:=0;
     prev_found:=0;
     
+    !temp_point := CRobT(\Tool:=tool0\WObj:=main_obj);
+    !Get current angles for p10
     anglex:=EulerZYX(\X,new_point.rot);
     angley:=EulerZYX(\Y,new_point.rot);
     anglez:=EulerZYX(\Z,new_point.rot);
-    new_point.rot:=OrientZYX(0, angley, anglex);
-    MoveJ new_point,SD_DEFAULT,fine,tool0\WObj:=main_obj;
-
+    
+    new_point.rot:=OrientZYX(-180, angley,anglex);
+    MoveL new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+    base_point := new_point;
+    
     !SetDO Local_IO_0_DO8, 1;
+    SetDO Local_IO_0_DO8, 0;
+    SetDO Local_IO_0_DO1, 0;
     SocketCreate serverSocket;
-    SocketBind serverSocket, "127.0.0.1", 1488;
+    SocketBind serverSocket, "192.168.125.1", 1488;
     SocketListen serverSocket;
     SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
     !SetDO Local_IO_0_DO8, 0;
@@ -172,40 +162,59 @@ PROC main()
             
             check:=IsReachable(new_point);
             
-        ELSEIF command = "PSTART" THEN
-            !SetDO Local_IO_0_DO1, 1;
+        ELSEIF command = "PUMP_START" THEN
+            SetDO Local_IO_0_DO1, 1;
             check:=TRUE;
-        ELSEIF command = "PSTOP" THEN
+        ELSEIF command = "PUMP_STOP" THEN
             check:=TRUE;
-            !SetDO Local_IO_0_DO1, 0;
+            SetDO Local_IO_0_DO1, 0;
+        ELSEIF command = "VALVE_OPEN" THEN
+            SetDO Local_IO_0_DO8, 0;
+            check:=TRUE;
+        ELSEIF command = "ROT_BASE" THEN
+            check:=TRUE;
+        ELSEIF command = "VALVE_CLOSE" THEN
+            SetDO Local_IO_0_DO8, 1;
+            check:=TRUE;
         ELSEIF command = "ROT" THEN
+            !get future angle from string
             tmp_str := StrPart(receive_cmd, prev_found+1, StrLen(receive_cmd)-found);
-            check := StrToVal(tmp_str, plus_angle);
-            !SetDO Local_IO_0_DO1, 0;
+            check := StrToVal(tmp_str, futureAngle);
+            check:=TRUE;
         ENDIF
         
         IF check THEN
+            Send("cmd accepted"); 
             IF command = "MJ_ARC" THEN
-                !current_position := CRobT(\Tool:=tool0\WObj:=main_obj);
-                !circ_point := get_circle_point(current_position, new_point);
-                circ_point := new_point;
-                circ_point.trans.z := circ_point.trans.z + 70;
-                MoveL circ_point, SD_DEFAULT,z50,tool0\WObj:=main_obj;
+                temp_point := new_point;
+                temp_point.trans.z := temp_point.trans.z + 70;
+                MoveL temp_point, SD_DEFAULT,z50,tool0\WObj:=main_obj;
                 MoveL new_point, SD_DEFAULT,fine,tool0\WObj:=main_obj;
-            ELSEIF command = "MJ" THEN 
-                MoveL new_point, SD_DEFAULT,fine,tool0\WObj:=main_obj;  
+                WaitRob\InPos;
+            ELSEIF command = "MJ" THEN
+                MoveL new_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+                WaitRob\InPos;
             ELSEIF command = "ROT" THEN
-                current_position := CRobT(\Tool:=tool0\WObj:=main_obj);
+                temp_point := CRobT(\Tool:=tool0\WObj:=main_obj);
                 !Get current angles for p10
-                anglex:=EulerZYX(\X,current_position.rot);
-                angley:=EulerZYX(\Y,current_position.rot);
-                anglez:=EulerZYX(\Z,current_position.rot);
-                plus_angle := plus_angle + anglez;
-                current_position.rot:=OrientZYX(plus_angle,angley,anglex);
-                MoveL current_position,rot_speed,fine,tool0\WObj:=main_obj;  
+                anglex:=EulerZYX(\X,temp_point.rot);
+                angley:=EulerZYX(\Y,temp_point.rot);
+                anglez:=EulerZYX(\Z,temp_point.rot);
+                futureAngle := futureAngle + anglez;
+                new_point.rot:=OrientZYX(futureAngle,angley,anglex);
+                !anglez:=EulerZYX(\Z,new_point.rot);
+                MoveL new_point,speed_rot,fine,tool0\WObj:=main_obj;  
+                WaitRob\InPos;
+            ELSEIF command = "ROT_BASE" THEN
+                temp_point := CRobT(\Tool:=tool0\WObj:=main_obj);
+                !Get current angles for p10
+                anglex:=EulerZYX(\X,temp_point.rot);
+                angley:=EulerZYX(\Y,temp_point.rot);
+                new_point.rot:=OrientZYX(-180,angley,anglex);
+                
+                MoveJ new_point,SD_DEFAULT,z0,tool0\WObj:=main_obj;  
                 WaitRob\InPos;
             ENDIF
-            Send("cmd accepted");
         ELSE
             Send("wrong cmd!");
         ENDIF
@@ -219,6 +228,9 @@ PROC main()
         
     ENDWHILE
     
+    MoveL base_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+    SetDO Local_IO_0_DO8, 0;
+    SetDO Local_IO_0_DO1, 0;
     SocketClose clientSocket;
     SocketClose serverSocket;
     stop;
@@ -227,14 +239,18 @@ PROC main()
     IF ERRNO=ERR_SOCK_TIMEOUT THEN
         RETRY;
     ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
+        MoveL base_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        SetDO Local_IO_0_DO8, 0;
+        SetDO Local_IO_0_DO1, 0;
         SocketClose clientSocket;
         SocketClose serverSocket;
         SocketCreate serverSocket;
-        SocketBind serverSocket, "127.0.0.1", 1488;
+        SocketBind serverSocket, "192.168.125.1", 1488;
         SocketListen serverSocket;
         SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
         RETRY;
     ELSE
+
         SocketClose clientSocket;
         SocketClose serverSocket;
         stop;
