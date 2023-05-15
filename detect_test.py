@@ -27,7 +27,7 @@ import pyzbar.pyzbar as pyzbar
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
 #PATH_PT = ROOT / "best_x_50epochs.pt"
-PATH_PT = ROOT / "bestx.pt"
+PATH_PT = ROOT / "best_segm.pt"
 stop_thread = False
 
  
@@ -140,16 +140,12 @@ def main():
     model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
     stride, names, pt = model.stride, model.names, model.pt
     imgsz = check_img_size((1280, 736), s=stride)  # check image size
-    img = cv.imread("./depth/5.jpg")
+    img = cv.imread("./depth/3.jpg")
 
-    # Compute the perspective transform M
-    M = cv2.getPerspectiveTransform(input_pts, output_pts)
-    print(M)
-    rows, cols, ch = img.shape
-    dst = cv.warpPerspective(img, M, (cols, rows), flags=cv2.INTER_LINEAR)
-    cv.imshow("asd", dst)
-    cv2.waitKey(0)
+    pad = np.ones((16, 1280, 3), dtype=np.uint8)
+    img = np.append(img, pad, axis=0)
 
+    x, y, angle = get_center(img, model, 1)
     cv2.destroyAllWindows()
 
 

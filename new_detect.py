@@ -10,15 +10,15 @@ import imutils
 import socket
 import pyrealsense2 as rs
 import time
-
-# from models.common import DetectMultiBackend
-# from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
-# from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
-#                            increment_path, non_max_suppression, print_args, scale_boxes, scale_segments,
-#                            strip_optimizer)
-# from utils.plots import Annotator, colors, save_one_box
-# from utils.segment.general import masks2segments, process_mask, process_mask_native
-# from utils.torch_utils import select_device, smart_inference_mode
+import pandas as pd
+from models.common import DetectMultiBackend
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
+                           increment_path, non_max_suppression, print_args, scale_boxes, scale_segments,
+                           strip_optimizer)
+from utils.plots import Annotator, colors, save_one_box
+from utils.segment.general import masks2segments, process_mask, process_mask_native
+from utils.torch_utils import select_device, smart_inference_mode
 
 from threading import Thread
 from threading import Event
@@ -27,7 +27,7 @@ from matplotlib import pyplot as plt
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]
-PATH_PT = ROOT / "best_x_50epochs.pt"
+PATH_PT = ROOT / "best_segm.pt"
 stop_thread = False
 
 
@@ -117,7 +117,7 @@ def get_center(img_orig, model, show_output=0):
                 # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
 
             cv.imshow('img', img_orig)
-            cv2.waitKey(1000)
+            cv2.waitKey(0)
 
     print(f"Found with center: {cX, cY}, angle: {angle}")
     return int(cX), int(cY), angle
@@ -230,7 +230,7 @@ def get_img_affine(color_frame, depth_frame_fltr, trans):
     # criteria for vertices
     cond = (rbt_pnts_align[:, 0] > 0) & (rbt_pnts_align[:, 0] < w) & \
         (rbt_pnts_align[:, 1] > 0) & (rbt_pnts_align[:, 1] < h) & \
-        (rbt_pnts_align[:, 2] > -50) & (rbt_pnts_align[:, 2] < 400)
+        (rbt_pnts_align[:, 2] > -10) & (rbt_pnts_align[:, 2] < 200)
     
     rbt_pnts_align = rbt_pnts_align[cond]
     # get texture for vertices
@@ -264,45 +264,47 @@ def main():
     category = 0
 
     # Load tranform matrix
-    trans = np.loadtxt("matrix2.txt")
+    trans = np.loadtxt("matrix_rigid.txt")
     R, t = trans[:, [0, 1, 2]], trans[:, [3]].reshape(3)
-    # t[[0, 1, 2]] = t[[1, 0, 2]]
+
     #create socket, connect to robot controller and send data
-    #sock = socket.socket()
-    #sock.connect(("192.168.125.1", 1488))
+    sock = socket.socket()
+    sock.connect(("192.168.125.1", 1488))
 
     # Load model
-    # device = select_device("")
-    # model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
-    # stride, names, pt = model.stride, model.names, model.pt
-    # imgsz = check_img_size((1280, 736), s=stride)  # check image size
+    device = select_device("")
+    model = DetectMultiBackend(PATH_PT, device=device, dnn=False, data=None, fp16=False)
+    stride, names, pt = model.stride, model.names, model.pt
+    imgsz = check_img_size((1280, 736), s=stride)  # check image size
 
     # Run inference
-    # model.warmup(imgsz=(1, 3, *imgsz))  # warmup
+    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
 
     # Configure depth and color streams
     pipeline = rs.pipeline()
     config = rs.config()
-    rs.config.enable_device_from_file(config, "2.bag") ## DEL
-    config.enable_stream(rs.stream.depth, rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, rs.format.rgb8, 30)
-    #config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
-    #config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
+    #rs.config.enable_device_from_file(config, "2.bag") ## DEL
+    #config.enable_stream(rs.stream.depth, rs.format.z16, 30)
+    #config.enable_stream(rs.stream.color, rs.format.rgb8, 30)
+    config.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
+    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
     profile = pipeline.start(config)
 
-    # depth_sensor = profile.get_device().first_depth_sensor()
-    # depth_sensor.set_option(rs.option.visual_preset, 4) # High density preset
+    depth_sensor = profile.get_device().first_depth_sensor()
+    depth_sensor.set_option(rs.option.visual_preset, 4) # High density preset
 
     align_to = rs.stream.depth
     align = rs.align(align_to)
     fltr = rs.hole_filling_filter(2)
 
-    # # start thread web camera
-    # camera = cv2.VideoCapture(3)
-    # #out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
-    # stop_event = Event()
-    # thread_camera = Thread(target=camera_thread, args=(camera, stop_event,))
-    # thread_camera.start()
+    # start thread web camera
+    camera = cv2.VideoCapture(3)
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    #out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'MJPG'), 10.0, (480,640))
+    stop_event = Event()
+    thread_camera = Thread(target=camera_thread, args=(camera, stop_event,))
+    thread_camera.start()
 
     # one box
     is_work = 1
@@ -312,6 +314,7 @@ def main():
         try:
             #cmd_to_robot(sock, "MJ 0 0 200")
             #cmd_to_robot(sock, "VALVE_OPEN ")
+
             for x in range(5):
                 frames = pipeline.wait_for_frames()
             
@@ -332,11 +335,10 @@ def main():
 
             x, y, angle = get_center(color_frame_affine, model, 1)
 
-# самая правая -70 -171 130
-# центр 69 -236 92
-# 161 -120 97
-
-            # plt.figure(figsize=(21, 9))
+            if x == 0:
+                print("Didnt find object!")
+                continue
+            # plt.figure(figsize=(12, 4))
             # plt.subplot(131)
             # plt.imshow(rbt_verts)
             # plt.subplot(132)
@@ -361,53 +363,57 @@ def main():
 
             # apply translation 
             # check t !
-            trans_rbt_pnt = np.array([x, y, depth]) - t
+            new_t = np.array([-455, -459, 10])
+            trans_rbt_pnt = np.array([x, y, depth]) + new_t
+
             cmd_box = get_str_command(trans_rbt_pnt)
 
-            # rotate manipulator before taking
-            cmd_to_robot(sock, "ROT " + str(-angle))
+            # # # rotate manipulator before taking
+            # cmd_to_robot(sock, "ROT " + str(-angle))
 
-            # take a box
-            cmd_to_robot(sock, "PUMP_START ") ## не помню как брать
+            # # # take a box
+            # cmd_to_robot(sock, "PUMP_START ")
             cmd_to_robot(sock, cmd_box)
-            time.sleep(1)
+            time.sleep(10.5)
 
-            # pick box up
-            cmd_box[2] = 250
-            stri = np.array2string(coord, formatter={'float_kind':lambda x: "%.2f" % x})
-            cmd = "MJ " + stri[1:-1]
-            cmd_to_robot(sock, cmd)
+            # # pick box up
+            # trans_rbt_pnt[2] = 250
+            # stri = np.array2string(trans_rbt_pnt, formatter={'float_kind':lambda x: "%.2f" % x})
+            # cmd = "MJ " + stri[1:-1]
+            # cmd_to_robot(sock, cmd)
 
-            # rotate manipulator after taking for alignment
-            cmd_to_robot(sock, "ROT " + str(angle))
+            # # rotate manipulator after taking for alignment
+            # cmd_to_robot(sock, "ROT " + str(angle))
 
-            # moving to camera for detecting !! изменить координаты камеры
-            cmd_to_robot(sock, "MJ -165 -228 180")
-            cmd_to_robot(sock, "MJ -165 -228 33")
+            # # moving to camera for detecting !! изменить координаты камеры
+            # cmd_to_robot(sock, "MJ -302 -478 252")
+            # #cmd_to_robot(sock, "MJ -165 -228 33")
 
-            # detecting qr
-            for i in range(1):
-                time.sleep(1.5)
-                if category:
-                    break
-                cmd_to_robot(sock, "ROT 90")
-                time.sleep(1.5)
-                if category:
-                    break
-                cmd_to_robot(sock, "ROT 90")
-                time.sleep(1.5)
-                if category:
-                    break
-                cmd_to_robot(sock, "ROT 90")
-                time.sleep(1.5)
+            # # detecting qr
+            # for i in range(1):
+            #     time.sleep(2.5)
+            #     if category:
+            #         break
+            #     cmd_to_robot(sock, "ROT 90")
+            #     time.sleep(2.5)
+            #     if category:
+            #         break
+            #     cmd_to_robot(sock, "ROT 90")
+            #     time.sleep(2.5)
+            #     if category:
+            #         break
+            #     cmd_to_robot(sock, "ROT 90")
+            #     time.sleep(2.5)
 
-            # TODO category
-
-            cmd_to_robot(sock, "VALVE_CLOSE ")
-            cmd_to_robot(sock, "PUMP_STOP ") ## не помню как отпускать
-            time.sleep(2)
-            cmd_to_robot(sock, "VALVE_OPEN ")
-            cmd_to_robot(sock, "ROT_BASE ")
+            # if category:
+            #     print("asdas")
+            # else:
+            #     print("not")
+            # # # TODO category
+            # cmd_to_robot(sock, "VALVE_CLOSE ")
+            # cmd_to_robot(sock, "PUMP_STOP ")
+            # cmd_to_robot(sock, "VALVE_OPEN ")
+            
 
             is_work -= 1
 

@@ -3,6 +3,7 @@ import cv2
 import re
 import numpy as np
 import matplotlib.pyplot as plt
+import pyrealsense2 as rs
 
 camera_matrix = [[644.034, 0.0, 632.666], [0.0, 644.034, 362.382], [0.0, 0.0, 1.0]]
 
@@ -89,37 +90,64 @@ def rigid(rp, cp):
 
 
 def get_world_coords(x, y, depth):
-    """return physical coordinates in mm
-
-    Keyword arguments:
-    x, y -- coordinates of a point in pixels
-    depth -- depth coordiante of the same point
-    camera_matrix -- 3x3 matrix with focal lengthes and principial point"""
     f = np.linalg.inv(camera_matrix)
     v = np.array([x, y, 1]) * depth
     return np.dot(f, v)
 
+def make_intrinsics():
+    intrinsics = rs.intrinsics()
+    intrinsics.coeffs = [0,0,0,0,0]
+    intrinsics.fx = 644.034
+    intrinsics.fy = 644.034
+    intrinsics.height = 720
+    intrinsics.ppx = 632.666
+    intrinsics.ppy = 362.382
+    intrinsics.width=1280
+    return intrinsics
+
 
 def main():
-    
+    trans = np.loadtxt("matrix.txt")
     rp = np.loadtxt("rp.txt")
-    cp = np.loadtxt("cp.txt") * 1000
+    cp = np.loadtxt("cp.txt")[:, [0, 1, 4]]
 
-    # # #create 3d axes
-    fig = plt.figure()
-    ax = plt.axes(projection='3d')
+    instr = make_intrinsics()
+    new = []
+
+    for cx, cy, cd in cp:
+        a = list(rs.rs2_deproject_pixel_to_point(instr,
+                    [cx, cy], cd))
+        new.append(a)
     
-    ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
-    ax.view_init(60, 50)
-    ax.plot3D(cp[:, 0], cp[:, 1], cp[:, 2], 'blue')
-    ax.view_init(60, 50)
-    plt.show()
-    cp = cp[:, [0, 1, 2]]
-    # # print(rp.shape, cp.shape)
-    trans = affine(rp, cp)
+    new = np.array(new)
+    print(new)
+    new = np.hstack((new*1000, np.ones((new.shape[0], 1))))
+    print(new)
+
+    new1 = []
+    for c in new:
+        c_new = (trans@c.T).astype("int32")
+        new1.append(c_new)
+
+    print(new1)
+
+    # cp = np.loadtxt("cp.txt") * 1000
+
+    # # # #create 3d axes
+    # fig = plt.figure()
+    # ax = plt.axes(projection='3d')
     
-    matrix = rigid(rp.T, cp.T)
-    np.savetxt("matrix.txt", matrix)
+    # # ax.plot3D(rp[:, 0], rp[:, 1], rp[:, 2], 'red')
+    # # ax.view_init(60, 50)
+    # # ax.plot3D(cp[:, 2], cp[:, 3], cp[:, 4], 'blue')
+    # # ax.view_init(60, 50)
+    # # plt.show()
+    # cp = cp[:, [2, 3, 4]]
+    # # # # print(rp.shape, cp.shape)
+    # trans = affine(rp, cp)
+    
+    #matrix = rigid(rp.T, cp.T)
+    # np.savetxt("matrix_old.txt", matrix)
     
 
 

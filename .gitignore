@@ -1,5 +1,4 @@
-best_x_77.pt
-best_segm.pt
+*.pt
 cp.txt
 rp.txt
 matrix.txt
