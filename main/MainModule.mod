@@ -3,6 +3,7 @@ MODULE MainModule
 VAR socketdev serverSocket;
 VAR socketdev clientSocket;
 VAR robtarget base_point;
+VAR robtarget new_point;
 !CONST hand_params DUMMY_HP := [0,0,0,0];
 !CONST orient DUMMY_ROT := [1,0,0,0];
 !CONST confdata DUMMY_ROBCONF := [0,-1,0,0];
@@ -10,7 +11,7 @@ VAR robtarget base_point;
 !CONST pos DUMMY_POS := [0,0,0];
 !CONST robtarget DUMMY_ROBT := [DUMMY_POS,DUMMY_ROT,DUMMY_ROBCONF,DUMMY_EXTAX];
 CONST robtarget ROBT_DEFAULT := [[0,0,200],[0,1,0,0],[0,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]];
-CONST speeddata SD_DEFAULT := v200;
+CONST speeddata SD_DEFAULT := v300;
 CONST zonedata ZD_DEFAULT := z0;
 
 FUNC string Receive()
@@ -26,6 +27,7 @@ FUNC string Receive()
         RETRY;
     ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
         MoveL base_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        new_point:=base_point;
         SetDO Local_IO_0_DO8, 0;
         SetDO Local_IO_0_DO1, 0;
         SocketClose clientSocket;
@@ -88,7 +90,6 @@ PROC main()
     VAR num found;
     VAR num prev_found;
     
-    VAR robtarget new_point := ROBT_DEFAULT;
     VAR robtarget temp_point;
     VAR num x;
     VAR num y;
@@ -97,8 +98,9 @@ PROC main()
     VAR num angley;
     VAR num anglez;
     VAR num futureAngle := 0;
-    VAR speeddata speed_rot := [100, 100, 100, 100];
+    VAR speeddata speed_rot := [200, 200, 200, 200];
     
+    new_point := ROBT_DEFAULT;
     x:=0;
     y:=0;
     z:=200;
@@ -168,12 +170,12 @@ PROC main()
         ELSEIF command = "PUMP_STOP" THEN
             check:=TRUE;
             SetDO Local_IO_0_DO1, 0;
-        ELSEIF command = "VALVE_OPEN" THEN
+        ELSEIF command = "8VALVE_0" THEN
             SetDO Local_IO_0_DO8, 0;
             check:=TRUE;
         ELSEIF command = "ROT_BASE" THEN
             check:=TRUE;
-        ELSEIF command = "VALVE_CLOSE" THEN
+        ELSEIF command = "8VALVE_1" THEN
             SetDO Local_IO_0_DO8, 1;
             check:=TRUE;
         ELSEIF command = "ROT" THEN
@@ -203,7 +205,7 @@ PROC main()
                 futureAngle := futureAngle + anglez;
                 new_point.rot:=OrientZYX(futureAngle,angley,anglex);
                 !anglez:=EulerZYX(\Z,new_point.rot);
-                MoveL new_point,speed_rot,fine,tool0\WObj:=main_obj;  
+                MoveL new_point,speed_rot,z0,tool0\WObj:=main_obj;  
                 WaitRob\InPos;
             ELSEIF command = "ROT_BASE" THEN
                 temp_point := CRobT(\Tool:=tool0\WObj:=main_obj);
@@ -240,6 +242,7 @@ PROC main()
         RETRY;
     ELSEIF ERRNO=ERR_SOCK_CLOSED THEN
         MoveL base_point,SD_DEFAULT,ZD_DEFAULT,tool0\WObj:=main_obj;
+        new_point:=base_point;
         SetDO Local_IO_0_DO8, 0;
         SetDO Local_IO_0_DO1, 0;
         SocketClose clientSocket;

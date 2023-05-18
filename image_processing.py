@@ -7,7 +7,6 @@ import sys
 import cv2 as cv
 import numpy as np
 import imutils
-import socket
 import pyrealsense2 as rs
 import time
 
@@ -37,8 +36,8 @@ def get_center(img_orig, model, show_output=0):
 
     pred, proto = model(img, augment=False, visualize=False)[:2]
 
-    conf_thres=0.70
-    iou_thres=0.45
+    conf_thres=0.85
+    iou_thres=0.8
     classes=None
     agnostic_nms=False
     pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=100, nm=32)
@@ -108,7 +107,7 @@ def get_center(img_orig, model, show_output=0):
                 # annotator.box_label(xyxy, label, color=colors(color_bbox, True))
 
             cv.imshow('img', img_orig)
-            cv2.waitKey(0)
+            cv2.waitKey(1000)
 
     print(f"Found with center: {cX, cY}, angle: {angle}")
     return int(cX), int(cY), angle
