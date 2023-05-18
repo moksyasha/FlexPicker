@@ -3,13 +3,16 @@ import cv2
 import pyzbar.pyzbar as pyzbar
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 
 def first(img):
     barcode_detector = cv2.barcode_BarcodeDetector()
-
+    database = pd.read_csv("database.csv")
+    print(database.info(verbose=True))
     # 'retval' is boolean mentioning whether barcode has been detected or not
     retval, decoded_info, decoded_type, points = barcode_detector.detectAndDecode(img)
 
+    print(type(decoded_info[0]))
     # copy of original image
     img2 = img.copy()
 
@@ -17,12 +20,23 @@ def first(img):
     if retval:
         points = points.astype(np.int)
         for i, point in enumerate(points):
+            if decoded_info[i] == "":
+                continue
 
             img2 = cv2.drawContours(img2,[point],0,(0, 255, 0), 2)
 
             # uncomment the following to print decoded information
             x1, y1 = point[1]
             y1 = y1 - 10
+
+            data = int(decoded_info[i])
+            if data in database['code'].values:
+                name = database.loc[database['code'] == data]['name']
+                print(name.item())
+                category = 1
+                print(decoded_info[i] + " found in db: " + name)
+            else:
+                print(decoded_info[i] + " not found in db")
             cv2.putText(img2, decoded_info[i], (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 3, 2)
     return img2
 
