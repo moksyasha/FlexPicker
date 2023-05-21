@@ -121,7 +121,8 @@ PROC main()
     SetDO Local_IO_0_DO8, 0;
     SetDO Local_IO_0_DO1, 0;
     SocketCreate serverSocket;
-    SocketBind serverSocket, "192.168.125.1", 1488;
+    !SocketBind serverSocket, "192.168.125.1", 1488;
+    SocketBind serverSocket, "127.0.0.1", 1488;
     SocketListen serverSocket;
     SocketAccept serverSocket, clientSocket, \Time:=WAIT_MAX;
     !SetDO Local_IO_0_DO8, 0;
