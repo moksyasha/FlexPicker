@@ -36,8 +36,8 @@ def get_center(img_orig, model):
 
     pred, proto = model(img, augment=False, visualize=False)[:2]
 
-    conf_thres=0.85
-    iou_thres=0.8
+    conf_thres=0.7
+    iou_thres=0.7
     classes=None
     agnostic_nms=False
     pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=100, nm=32)
